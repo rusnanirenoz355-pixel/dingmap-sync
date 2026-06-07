@@ -258,6 +258,10 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 2. 提交并推送 Task 002-A。
 3. 进入 Task 003：Clean Table 导出钉图一键录入模板。
 
+### 提交记录
+
+* 功能提交：dc5a7a675c8d5f97a18e2ca150494970639e178f
+
 ## 任务卡 002-B 审核记录
 
 ### 审核结论
