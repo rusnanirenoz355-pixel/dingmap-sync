@@ -1,0 +1,10 @@
+{
+  "name": "@dingmap-sync/normalizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@dingmap-sync/shared": "workspace:*",
+    "zod": "^3.23.8"
+  }
+}

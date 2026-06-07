@@ -1,0 +1,10 @@
+{
+  "name": "@dingmap-sync/dingmap",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@dingmap-sync/shared": "workspace:*",
+    "exceljs": "^4.4.0"
+  }
+}

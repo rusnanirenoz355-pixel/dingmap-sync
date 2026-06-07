@@ -1,0 +1,9 @@
+{
+  "name": "@dingmap-sync/sources",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@dingmap-sync/shared": "workspace:*"
+  }
+}

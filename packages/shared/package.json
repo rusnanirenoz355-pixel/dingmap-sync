@@ -1,0 +1,13 @@
+{
+  "name": "@dingmap-sync/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./marker": "./marker.ts",
+    "./raw-record": "./raw-record.ts",
+    "./source": "./source.ts",
+    "./sync": "./sync.ts"
+  }
+}
