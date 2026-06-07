@@ -19,6 +19,7 @@
       "@dingmap-sync/sources/*": ["packages/sources/*"],
       "@dingmap-sync/normalizer/*": ["packages/normalizer/*"],
       "@dingmap-sync/dingmap/*": ["packages/dingmap/*"],
+      "@dingmap-sync/db/*": ["packages/db/*"],
       "@dingmap-sync/browser-controller/*": ["packages/browser-controller/*"]
     }
   }

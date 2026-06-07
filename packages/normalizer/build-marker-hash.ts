@@ -4,6 +4,8 @@ import type { CleanMarker } from "@dingmap-sync/shared";
 const HASH_FIELDS: Array<keyof CleanMarker> = [
   "siteName",
   "address",
+  "longitude",
+  "latitude",
   "stationManager",
   "phone",
   "salary",

@@ -191,6 +191,128 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 
 任务卡 002：粘贴模板导入 Clean Table。
 
+## 任务卡 002-A：粘贴模板导入 Clean Table
+
+### Issue 同步
+
+* Task 001-D Issue：线上创建失败，GitHub app 返回 403，已更新 docs/github-issues/task-001-d-issue.md 的 Done 评论草稿。
+* Task 002 Issue：线上创建失败，GitHub app 返回 403，已更新 docs/github-issues/task-002-issue.md。
+* Task 002 Issue 标题：[Task 002] 粘贴模板导入 Clean Table
+* Issue 编号：线上未创建
+* Issue 链接：docs/github-issues/task-002-issue.md
+* Issue 状态：本地草稿 / 待手动创建
+
+### 已完成
+
+* manual_paste 支持 TSV 表格文本解析。
+* 支持第一行作为表头。
+* 支持字段别名映射：站点、地址、电话、薪资、福利、联系人、面试时间、岗位、备注。
+* ImportPreviewRow 已支持 valid、invalid、duplicate、update_candidate。
+* 支持手机号基础校验和 11 位中国大陆手机号提取。
+* 支持 merge_key 生成。
+* 支持 current_hash 计算，hash 字段包含经纬度、负责人、薪资、福利、面试时间、岗位、备注等。
+* 支持 duplicate / update_candidate 判断。
+* 新增 packages/db/manual-paste.ts，提供 previewManualPaste、importManualPaste、listCleanMarkers。
+* 新增 Next.js API route：预览、导入、读取 Clean Table。
+* Dashboard 已支持粘贴、生成预览、清空、导入 Clean Table、导入结果统计和 Clean Table 展示。
+* 导入写入 raw_records 和 clean_markers。
+* duplicate 默认跳过，invalid 不写入，valid 新增，update_candidate 更新。
+* 移动端页面级横向溢出已修复，表格保留内部横向滚动。
+
+### 未完成
+
+* 不做自然语言复杂解析。
+* 不做没有表头的智能猜测。
+* 不做优招 / 捷聘真实采集。
+* 不做钉图真实登录。
+* 不做钉图一键录入模板导出。
+* 不做 Playwright 自动点击。
+* 不改动数据库 schema。
+* 不接入真实业务数据。
+* 线上 GitHub Issue 因权限 403 未创建，需要手动复制 docs/github-issues 草稿。
+
+### 命令验证
+
+| 命令 | 状态 | 备注 |
+| --- | --- | --- |
+| corepack pnpm db:migrate | 成功 | schema 无变更，迁移可执行 |
+| corepack pnpm check | 成功 | TypeScript 检查通过 |
+| corepack pnpm lint | 成功 | ESLint 通过 |
+| corepack pnpm test | 成功 | 5 个测试文件，15 个测试通过 |
+| corepack pnpm verify | 成功 | check + lint + test 全部通过 |
+| corepack pnpm dev | 成功 | Dashboard 可启动，API smoke test 通过 |
+
+### 浏览器验证
+
+* Dashboard 可打开。
+* 可以粘贴 TSV 并生成预览。
+* valid 行可导入。
+* 导入后 Clean Table 显示数据。
+* 重复粘贴可识别 duplicate。
+* 桌面和移动端无页面级横向溢出。
+* 浏览器控制台无 error。
+
+### 下一步
+
+1. 手动创建 / 同步 GitHub Issue。
+2. 提交并推送 Task 002-A。
+3. 进入 Task 003：Clean Table 导出钉图一键录入模板。
+
+## 任务卡 002-B 审核记录
+
+### 审核结论
+
+不通过
+
+### 通过项
+
+* `docs/github-issues/task-001-d-issue.md` 已存在，Task 001-D 至少有本地 Issue 草稿。
+* `docs/github-issues/task-002-issue.md` 已存在，Task 002 至少有本地 Issue 草稿。
+* `manual_paste` 仍作为 DataSourcePlugin 存在，解析逻辑没有写死在页面组件里。
+* Task 002 当前没有越界实现优招采集、捷聘采集、钉图真实登录、钉图导出、Playwright 自动点击、定时同步或真实业务数据接入。
+* OKX 浅色基础 Dashboard 仍可启动，页面保持白色 / 浅灰背景和黑色主按钮方向。
+* `.gitignore` 已排除 `.env`、`.auth`、`data/*.db`、`data/*.sqlite`、`data/screenshots`、`data/uploads`、`data/exports`、`node_modules` 等敏感或生成目录。
+* `corepack pnpm check`、`corepack pnpm lint`、`corepack pnpm test`、`corepack pnpm verify` 均通过。
+
+### 问题
+
+* Task 001-D 本地 Issue 草稿未记录指定 commit：`cbbe346e608ef2236ca92966593722b4709ef23f`。
+* 线上 GitHub Issues 当前显示 0 个 Issue；Task 001-D 和 Task 002 均未确认已在线创建。
+* `docs/dev-log.md` 在本次审核前未记录 Task 002 的 Issue 信息或 Task 002 完成记录。
+* `packages/sources/manual-paste/parser.ts` 仍是按行切分的占位实现，不支持 TSV 表头识别、字段别名映射、预览状态、校验、去重或 hash。
+* `packages/sources/manual-paste/mapper.ts` 仍只把占位预览映射为 `review` / `need_confirm`，未实现写入前校验、`pending`、`create` / `update`、`current_hash`、`merge_key`、`locked_fields`、`manual_override` 等要求。
+* `packages/normalizer/field-aliases.ts` 缺少 `interview_time` 和 `job_title` 字段别名。
+* 预览结构仍是 Task 001 占位的 `parseStatus`，没有 `valid`、`invalid`、`duplicate`、`update_candidate`。
+* 未发现 clean_markers 写入接口或导入逻辑；duplicate / invalid 跳过、update_candidate 防覆盖等规则均未实现。
+* Dashboard 仍是占位页面，缺少识别 / 预览按钮、清空按钮、真实预览表格、状态标签、错误 / 警告展示、导入结果统计和导入后 Clean Table 数据显示。
+* 测试仍只有 `tests/normalizer.test.ts` 的 3 个基础用例，未覆盖 Task 002 要求的 TSV、别名、空行、手机号、invalid、duplicate、update_candidate、valid 导入。
+* `corepack pnpm dev -- --hostname ...` 会失败，因为当前 dev 脚本 `cd apps/dashboard && next dev` 会把额外参数传成目录；裸 `corepack pnpm dev` 可启动。
+
+### 风险
+
+* 当前 Task 002 仍处于占位状态，若进入 Task 003，会缺少 Clean Table 真实数据来源。
+* git 不在 PATH，当前会话无法执行 `git status`，因此不能确认敏感文件是否已进入暂存区或历史。
+* 本地存在 `data/app.db`、`data/screenshots`、`data/uploads`、`data/exports`、`node_modules`，虽然 `.gitignore` 已覆盖，但推送前仍需用 GitHub Desktop 或修复 Git 后确认未提交。
+* GitHub 线上 Issue 未创建时，跨设备协作只能依赖本地草稿，状态同步风险较高。
+
+### 验证命令
+
+| 命令 | 状态 | 备注 |
+| -- | -- | -- |
+| corepack pnpm check | 成功 | TypeScript 检查通过 |
+| corepack pnpm lint | 成功 | ESLint 通过 |
+| corepack pnpm test | 成功 | Vitest 通过：1 个测试文件，3 个用例 |
+| corepack pnpm verify | 成功 | check + lint + test 全部通过 |
+| corepack pnpm dev | 成功 | 裸命令可启动；3000 被占用时自动转 3002，HTTP 200。带参数启动会失败 |
+
+### 是否可以进入任务卡 003
+
+否
+
+### 下一步建议
+
+回到任务卡 002：补齐 TSV 表头识别、字段别名映射、预览状态、校验、去重、写入 clean_markers、Dashboard 真实交互和测试后，再重新执行 002-B 审核。通过后再进入任务卡 003：Clean Table 导出钉图一键录入模板。
+
 ## 任务卡 001-D：README / Agent 规范自动更新机制
 
 ### 已完成

@@ -5,7 +5,24 @@ export const fieldAliases = {
   salary: ["薪资", "薪资待遇", "待遇", "工资", "收入"],
   welfare: ["福利", "福利待遇", "补贴", "优势", "亮点"],
   station_manager: ["站长", "联系人", "负责人", "经理", "主管"],
+  interview_time: ["面试时间", "到场时间", "上班时间"],
+  job_title: ["岗位", "职位", "招聘岗位"],
   remark: ["备注", "说明", "其他", "补充"],
 } as const;
 
 export type NormalizedFieldName = keyof typeof fieldAliases;
+
+function compactHeader(value: string): string {
+  return value.trim().replace(/\s+/g, "").replace(/[：:]/g, "").toLowerCase();
+}
+
+const aliasLookup = new Map<string, NormalizedFieldName>(
+  Object.entries(fieldAliases).flatMap(([field, aliases]) => {
+    const normalizedField = field as NormalizedFieldName;
+    return [field, ...aliases].map((alias) => [compactHeader(alias), normalizedField]);
+  }),
+);
+
+export function resolveFieldAlias(header: string): NormalizedFieldName | undefined {
+  return aliasLookup.get(compactHeader(header));
+}

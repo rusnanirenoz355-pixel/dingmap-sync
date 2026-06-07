@@ -7,6 +7,8 @@ export type MarkerSyncStatus =
   | "failed"
   | "skipped";
 
+export type ImportPreviewStatus = "valid" | "invalid" | "duplicate" | "update_candidate";
+
 export interface CleanMarker {
   id?: number;
   source: string;
@@ -40,7 +42,14 @@ export interface ImportPreviewRow {
   rowIndex: number;
   source: string;
   rawText: string;
-  normalized: Partial<CleanMarker>;
-  parseStatus: "pending" | "parsed" | "needs_review" | "failed";
+  raw: Record<string, string>;
+  mapped: Partial<CleanMarker>;
+  normalized?: Partial<CleanMarker>;
+  status: ImportPreviewStatus;
+  errors: string[];
   warnings: string[];
+  mergeKey?: string | null;
+  currentHash?: string | null;
+  existingMarkerId?: number | null;
+  parseStatus?: "pending" | "parsed" | "needs_review" | "failed";
 }

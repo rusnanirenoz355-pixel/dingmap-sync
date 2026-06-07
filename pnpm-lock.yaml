@@ -94,7 +94,14 @@ importers:
         specifier: ^1.48.0
         version: 1.60.0
 
-  packages/db: {}
+  packages/db:
+    dependencies:
+      '@dingmap-sync/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@dingmap-sync/sources':
+        specifier: workspace:*
+        version: link:../sources
 
   packages/dingmap:
     dependencies:
@@ -118,6 +125,9 @@ importers:
 
   packages/sources:
     dependencies:
+      '@dingmap-sync/normalizer':
+        specifier: workspace:*
+        version: link:../normalizer
       '@dingmap-sync/shared':
         specifier: workspace:*
         version: link:../shared

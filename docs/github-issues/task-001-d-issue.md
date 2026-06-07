@@ -60,3 +60,22 @@ Labels: `task`, `docs`, `workflow`, `codex`, `cross-device`, `priority-high`
 ## 跨设备继续开发说明
 
 完成后 commit + push。另一台电脑 pull 后先阅读 README、docs/dev-log.md 和本 Issue，再开始 Task 002。
+
+## Done 评论草稿
+
+Done:
+
+* README 开发总规范已完成。
+* .agent/task-template.md 已加入任务卡自查机制。
+* .agent/coding-rules.md 已加入长期规范沉淀规则。
+* .agent/github-issues-rules.md 已加入 Started / Blocked / Done 和任务完成自动同步规则。
+* docs/dev-log.md 已更新。
+* docs/task-cards/001-d-readme-agent-auto-update.md 已创建。
+* 验证命令通过：check / lint / test / verify。
+* 已提交并推送到 main。
+
+Commit:
+cbbe346e608ef2236ca92966593722b4709ef23f
+
+下一步：
+Task 002：粘贴模板导入 Clean Table。

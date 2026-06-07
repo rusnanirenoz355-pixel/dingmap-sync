@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@dingmap-sync/normalizer": "workspace:*",
     "@dingmap-sync/shared": "workspace:*"
   }
 }
