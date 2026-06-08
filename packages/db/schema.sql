@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS clean_markers (
   merge_key TEXT,
   manual_override INTEGER NOT NULL DEFAULT 0,
   error_msg TEXT,
+  deleted_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

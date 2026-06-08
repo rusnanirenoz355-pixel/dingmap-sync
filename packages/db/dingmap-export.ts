@@ -49,6 +49,7 @@ type CleanMarkerDbRow = {
   merge_key: string | null;
   manual_override: number;
   error_msg: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -111,6 +112,7 @@ export function filterExportableMarkers(markers: CleanMarker[]): CleanMarker[] {
     const hasNameOrAddress = Boolean(marker.siteName.trim() || marker.address.trim());
     return (
       hasNameOrAddress &&
+      !marker.deletedAt &&
       marker.syncStatus === "pending" &&
       (marker.syncAction === "create" || marker.syncAction === "update")
     );
@@ -140,6 +142,7 @@ function listExportCandidateMarkers(database: DatabaseSync): CleanMarker[] {
         FROM clean_markers
         WHERE sync_status = 'pending'
           AND sync_action IN ('create', 'update')
+          AND deleted_at IS NULL
         ORDER BY updated_at DESC, id DESC
       `,
     )
@@ -259,6 +262,7 @@ function mapCleanMarkerRow(row: CleanMarkerDbRow): CleanMarker {
     mergeKey: row.merge_key,
     manualOverride: row.manual_override === 1,
     errorMsg: row.error_msg,
+    deletedAt: row.deleted_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -52,6 +52,7 @@ type CleanMarkerDbRow = {
   merge_key: string | null;
   manual_override: number;
   error_msg: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -150,6 +151,7 @@ export function listCleanMarkers(existingDatabase?: DatabaseSync): CleanMarker[]
         `
           SELECT *
           FROM clean_markers
+          WHERE deleted_at IS NULL
           ORDER BY updated_at DESC, id DESC
           LIMIT 200
         `,
@@ -177,6 +179,7 @@ function loadExistingMarkerFingerprints(
         SELECT id, merge_key, current_hash
         FROM clean_markers
         WHERE merge_key IS NOT NULL AND merge_key != ''
+          AND deleted_at IS NULL
       `,
     )
     .all() as Array<{ id: number; merge_key: string; current_hash: string | null }>;
@@ -393,6 +396,7 @@ function mapCleanMarkerRow(row: CleanMarkerDbRow): CleanMarker {
     mergeKey: row.merge_key,
     manualOverride: row.manual_override === 1,
     errorMsg: row.error_msg,
+    deletedAt: row.deleted_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
