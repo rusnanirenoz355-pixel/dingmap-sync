@@ -434,3 +434,205 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 1. 用 Dashboard 导出一份脱敏或本地测试数据生成的 `.xlsx`，手动上传到钉图验证模板兼容性。
 2. 若钉图需要调整列名或字段含义，只改 `packages/dingmap/export-template.ts`。
 3. 后续接入杂乱 Excel、优招、捷聘时，继续先入 Raw Table / Clean Table，再复用本导出层。
+
+## 任务卡 004-A：字段文本 / TSV / 带表头 Excel 导入 Clean Table
+
+### 当前状态
+
+已完成 Task 004 第一版导入层：字段名文本、TSV 粘贴、带表头 `.xlsx` 都可以先生成预览，再经服务端二次校验写入 Clean Table。导入后的 Clean Marker 保持 `sync_status = pending` 和 `sync_action = create / update`，继续复用 Task 003 钉图模板导出。
+
+### 已完成
+
+* 新增共享 import pipeline，集中处理字段别名、手机号规范化、校验、merge key、hash、preview summary。
+* 手工粘贴入口保留原函数名，内部改为 key-value / TSV parser + 公共 pipeline。
+* 支持 key-value 字段文本，中文冒号和英文冒号均可解析，空行分隔多条记录。
+* 支持 TSV 粘贴，第一行作为表头。
+* 支持 `.xlsx` 带表头 Excel 导入，默认读取第一个 Sheet，可按 Sheet 名选择。
+* Excel 上传限制为 5 MB，最多 1000 条数据行。
+* Excel 内存解析，不保存上传文件。
+* 新增共享 DB import 服务，导入时从 raw rows 服务端二次 preview，不信任前端 status / mergeKey / currentHash。
+* `valid` 新增，`duplicate` 跳过，`invalid` 跳过，`update_candidate` 默认更新。
+* Excel 写入 `source = excel`、`originType = excel`。
+* 字段文本 / TSV 写入 `source = manual_paste`、`originType = manual_paste`。
+* 新增 Excel preview / import API。
+* Dashboard 新增“字段文本 / TSV 导入”和“Excel 导入”入口，保留 Task 003 “导出钉图模板”按钮。
+* 测试文件不写完整业务手机号字面量，运行时用拼接方式生成合成手机号。
+
+### 隐私和数据口径
+
+* 手机号是业务字段，运行时允许导入 Clean Table、raw_records，并允许导出到钉图模板。
+* 真实手机号、真实地址不写入测试文件、任务卡示例、Issue 草稿、文档样例或 Git 提交样例。
+* 未提交真实 Excel、Cookie、账号信息、`.env`、`.auth`。
+* 未提交 `data/*.db`、`data/uploads/`、`data/exports/`。
+
+### 不做范围确认
+
+* 不做 OCR / 图片识别。
+* 不做无表头猜测。
+* 不做多 Sheet 合并。
+* 不支持 `.xls` / `.csv`。
+* 不做钉图真实上传。
+* 不做钉图登录。
+* 不做 Playwright 自动操作。
+* 不接优招 / 捷聘采集。
+* 不修改 Task 003 钉图 7 列模板。
+* 不改数据库 schema。
+
+### 新增 / 更新测试
+
+* `packages/sources/import-pipeline/preview.test.ts`
+* `packages/sources/manual-paste/parser.test.ts`
+* `packages/db/import-clean-markers.test.ts`
+* `packages/sources/excel-import/parser.test.ts`
+* `apps/dashboard/app/api/excel/excel-routes.test.ts`
+* `packages/normalizer/build-marker-hash.test.ts`
+* `packages/normalizer/normalize-phone.test.ts`
+
+覆盖内容：
+
+* key-value 字段文本解析。
+* TSV 兼容。
+* Excel `.xlsx` 内存解析。
+* Sheet 选择。
+* 文件大小和行数限制。
+* 字段别名映射。
+* 空行跳过。
+* 未识别字段保留在 raw。
+* 手机号规范化。
+* duplicate / invalid / update_candidate。
+* DB insert / update / skip / revalidate。
+* Excel API preview / import。
+* Excel 导入后仍可被 Task 003 export 过滤器选中。
+
+### 命令验证
+
+| 命令 | 状态 | 备注 |
+| --- | --- | --- |
+| corepack pnpm run check | 成功 | TypeScript 检查通过 |
+| corepack pnpm run lint | 成功 | ESLint 通过 |
+| corepack pnpm run test | 成功 | 12 个测试文件、46 个测试通过 |
+| corepack pnpm run verify | 成功 | check + lint + test 全部通过 |
+| Browser smoke | 成功 | Dashboard 可见字段文本 / TSV、Excel 导入、钉图导出、Clean Table，控制台无 error |
+
+### GitHub Issue 同步
+
+* Task 004 Issue 草稿：`docs/github-issues/task-004-issue.md`
+* 当前未直接创建或更新线上 Issue；如线上 Issue 已手动创建，可复制草稿中的 Done 评论。
+
+### 提交记录
+
+* 设计提交：eb7eecd31011258b607872b6fcb6d7f7b7391a77
+* 扩展设计提交：e9471cc8f655c7372f86e5bbf074d0b7e0590727
+* 实现计划提交：fa2ac8f50a82a8cfd63cf654f8fdbed9a42bba6f
+* 功能提交：60a9abad1ab607b3bf07e1c5931cfa004f88e202
+
+### 当前风险
+
+* 第一版仅支持 `.xlsx` 第一行表头。
+* Sheet 可选择但不合并。
+* 仍未做钉图真实上传验证，本任务只负责导入 Clean Table 并复用 Task 003 文件导出层。
+
+### 下一步
+
+1. 使用脱敏或本地测试数据走一次字段文本 / TSV / Excel 导入，再导出钉图模板文件做人工验收。
+2. 若要接优招 / 捷聘，继续保持 Raw Table / Clean Table / DingMap export 的三层路径。
+3. 若后续要支持 `.csv`、`.xls` 或无表头推断，应作为新任务卡处理。
+
+## 任务卡 005-A：Clean Table 已导入数据管理与软删除
+
+### 当前状态
+
+已完成 Task 005 第一版已导入数据管理层。当前实现基于 Task 004 分支能力继续开发，复用字段文本 / TSV / Excel 导入后的 Clean Table 数据，并新增独立 `/data-management` 页面用于查询、筛选、编辑、异常识别和软删除。软删除数据会从 Dashboard 默认统计、Clean Table 默认列表和 Task 003 钉图模板导出中排除。
+
+### 已完成
+
+* 基于 `codex/task-004-excel-import` 当前成果创建并推进 `codex/task-005-imported-data-management` 分支。
+* 新增 `deleted_at TEXT`，fresh schema 直接包含该列，老数据库迁移通过幂等 `ALTER TABLE` 补列。
+* 未新增 `import_batch_id`。
+* 新增 `packages/db/clean-marker-management.ts`，集中管理 list / edit / softDelete / statistics / anomaly derivation。
+* 默认 Clean Table 列表排除 `deleted_at IS NOT NULL` 的软删除记录。
+* Task 004 duplicate / update_candidate 指纹加载只读取未删除记录。
+* Task 003 DingMap 导出查询和 `filterExportableMarkers` 均排除软删除记录。
+* 新增 `GET /api/clean-markers/manage`，支持分页、搜索、来源、异常、包含已删除、只看已删除筛选。
+* 新增 `PATCH /api/clean-markers/[id]`，只允许更新业务字段，服务端重算 `mergeKey` / `currentHash`，设置 `manualOverride = true`、`syncAction = update`、`syncStatus = pending`。
+* 新增 `DELETE /api/clean-markers/[id]`，执行软删除并设置 `syncAction = archive`、`syncStatus = skipped`。
+* 新增 `/data-management` 独立管理页，采用固定行高表格、sticky 操作列和右侧 Drawer。
+* Dashboard 新增“管理已导入数据”入口和有效 / 异常 / 已删除摘要。
+* 长文本地址、薪资、福利、备注、异常信息默认摘要展示，可通过 Drawer 查看完整内容。
+* 异常识别由 Clean Table 当前状态派生：缺坐标、坐标非法、error_msg 非空、疑似重复。
+
+### 隐私和数据口径
+
+* 手机号和地址作为运行时业务字段，允许在管理页、Clean Table、raw_records 和钉图模板导出链路中使用。
+* 测试、任务卡、Issue 草稿、文档样例不写真实手机号或真实地址。
+* 未提交真实 Excel、Cookie、账号信息、`.env`、`.auth`。
+* 未提交 `data/*.db`、`data/uploads/`、`data/exports/`。
+
+### 不做范围确认
+
+* 不做 `import_batch_id`。
+* 不做硬删除。
+* 不删除 `raw_records`。
+* 不做恢复按钮。
+* 不做地图渲染。
+* 不做钉图真实上传 / 登录。
+* 不做 Playwright。
+* 不做 OCR / 图片识别。
+* 不接优招 / 捷聘。
+* 不改 Task 003 钉图 7 列模板字段。
+
+### 新增 / 更新测试
+
+* `packages/db/migrate.test.ts`
+* `packages/db/clean-marker-management.test.ts`
+* `apps/dashboard/app/api/clean-markers/clean-marker-management-routes.test.ts`
+* `apps/dashboard/app/components/TruncatedText.test.ts`
+* 更新 `packages/db/import-clean-markers.test.ts`
+* 更新 `packages/db/dingmap-export.test.ts`
+
+覆盖内容：
+
+* `deleted_at` fresh schema 与幂等迁移。
+* 默认列表排除软删除。
+* includeDeleted / deletedOnly。
+* 搜索与来源筛选。
+* 缺坐标、非法坐标、error_msg、疑似重复异常识别。
+* 编辑只更新可编辑字段，忽略只读 / 客户端可信字段。
+* 编辑后重算 `mergeKey` / `currentHash`。
+* 编辑后设置 `manualOverride = true`、`syncAction = update`、`syncStatus = pending`。
+* 软删除写入 `deleted_at` 并从统计 / 默认列表 / Task 003 导出中排除。
+* API list / edit / delete、非法 id、not found、非法坐标、重复删除。
+* 长文本摘要 helper。
+
+### 命令验证
+
+| 命令 | 状态 | 备注 |
+| --- | --- | --- |
+| corepack pnpm run check | 成功 | TypeScript 检查通过 |
+| corepack pnpm run lint | 成功 | ESLint 通过 |
+| corepack pnpm run test | 成功 | 16 个测试文件、63 个测试通过 |
+| corepack pnpm run verify | 成功 | check + lint + test 全部通过 |
+| HTTP smoke | 成功 | `http://localhost:3000/` 和 `/data-management` 返回 200，管理 API 返回 200 |
+
+### GitHub Issue 同步
+
+* Task 005 Issue 草稿：`docs/github-issues/task-005-issue.md`
+* 当前未直接创建或更新线上 Issue；如线上 Issue 已手动创建，可复制草稿中的 Done 评论。
+
+### 提交记录
+
+* 设计提交：`7df2573b965e191214324e3187e387ce54900eb2`
+* 实现计划提交：`4fafbc521fa0aa8e342fcb35331e81af5b0a89f7`
+* 功能提交：`d867d36d99e5b740e76d42d7184989f0b84cee85`
+
+### 当前风险
+
+* `/data-management` 第一版不做批量编辑、批量删除、恢复和权限审计。
+* 管理页展示运行时业务字段；文档和测试仍保持脱敏样例。
+* 本轮 Browser 控制工具未暴露，已用 HTTP smoke 代替页面可达性验证。
+
+### 下一步
+
+1. 用脱敏数据人工走一遍导入、管理编辑、软删除、导出链路。
+2. 若需要恢复已删除数据，单独开 Task 006 或后续任务卡。
+3. Task 004 + Task 005 稳定后，统一处理 PR / merge 顺序。

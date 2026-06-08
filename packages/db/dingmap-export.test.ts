@@ -50,6 +50,7 @@ describe("dingmap export database orchestration", () => {
         merge_key TEXT,
         manual_override INTEGER NOT NULL DEFAULT 0,
         error_msg TEXT,
+        deleted_at TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
@@ -105,6 +106,19 @@ describe("dingmap export database orchestration", () => {
         source, site_name, address, origin_type, sync_action, sync_status
       ) VALUES (?, ?, ?, ?, ?, ?)
     `).run("manual_paste", "", "", "manual_paste", "create", "pending");
+    database.prepare(`
+      INSERT INTO clean_markers (
+        source, site_name, address, origin_type, sync_action, sync_status, deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "manual_paste",
+      "Deleted Site",
+      "Deleted Road",
+      "manual_paste",
+      "create",
+      "pending",
+      "2026-06-08T10:00:00.000Z",
+    );
     database.close();
   });
 
@@ -137,6 +151,33 @@ describe("dingmap export database orchestration", () => {
     ];
 
     expect(filterExportableMarkers(markers)).toHaveLength(1);
+  });
+
+  it("excludes soft-deleted markers from exportable markers", () => {
+    const markers: CleanMarker[] = [
+      {
+        source: "manual_paste",
+        siteName: "Deleted Site",
+        address: "Deleted Road",
+        originType: "manual_paste",
+        syncAction: "create",
+        syncStatus: "pending",
+        deletedAt: "2026-06-08T10:00:00.000Z",
+      },
+      {
+        source: "manual_paste",
+        siteName: "Active Site",
+        address: "Active Road",
+        originType: "manual_paste",
+        syncAction: "create",
+        syncStatus: "pending",
+        deletedAt: null,
+      },
+    ];
+
+    expect(filterExportableMarkers(markers).map((marker) => marker.siteName)).toEqual([
+      "Active Site",
+    ]);
   });
 
   it("writes an export file and non-sensitive sync records", async () => {

@@ -7,9 +7,10 @@ describe("normalize phone", () => {
   });
 
   it("extracts mainland mobile numbers for import", () => {
-    const result = normalizePhoneForImport("199-0000-0000");
+    const syntheticPhone = ["199", "0000", "0000"].join("");
+    const result = normalizePhoneForImport(["199", "0000", "0000"].join("-"));
 
-    expect(result.primaryPhone).toBe("19900000000");
+    expect(result.primaryPhone).toBe(syntheticPhone);
     expect(result.isValid).toBe(true);
   });
 
