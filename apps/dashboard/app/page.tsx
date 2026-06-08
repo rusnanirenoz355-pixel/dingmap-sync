@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ClipboardPaste,
   Database,
+  Download,
   FileSpreadsheet,
   ListChecks,
   Loader2,
@@ -65,6 +66,13 @@ interface ImportResult {
   cleanMarkers: CleanMarker[];
 }
 
+interface DingmapExportResult {
+  filename: string;
+  downloadUrl: string;
+  exportedCount: number;
+  skippedCount: number;
+}
+
 const emptySummary: PreviewSummary = {
   valid: 0,
   invalid: 0,
@@ -78,8 +86,14 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState<PreviewSummary>(emptySummary);
   const [cleanMarkers, setCleanMarkers] = useState<CleanMarker[]>([]);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [loading, setLoading] = useState<"preview" | "import" | "clean" | null>(null);
+  const [dingmapExportResult, setDingmapExportResult] = useState<DingmapExportResult | null>(
+    null,
+  );
+  const [loading, setLoading] = useState<"preview" | "import" | "clean" | "export" | null>(
+    null,
+  );
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [exportErrorMsg, setExportErrorMsg] = useState<string | null>(null);
 
   const importableCount = useMemo(
     () => previewRows.filter((row) => row.status === "valid" || row.status === "update_candidate").length,
@@ -168,6 +182,29 @@ export default function DashboardPage() {
       setPasteText("");
     } catch {
       setErrorMsg("导入 Clean Table 失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleDingmapExport() {
+    setExportErrorMsg(null);
+    setDingmapExportResult(null);
+    setLoading("export");
+    try {
+      const response = await fetch("/api/dingmap/export", {
+        method: "POST",
+        cache: "no-store",
+      });
+      const data = (await response.json()) as DingmapExportResult & { error?: string };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "导出钉图模板失败。");
+      }
+
+      setDingmapExportResult(data);
+    } catch (error) {
+      setExportErrorMsg(error instanceof Error ? error.message : "导出钉图模板失败。");
     } finally {
       setLoading(null);
     }
@@ -338,6 +375,57 @@ export default function DashboardPage() {
 
             <PreviewTable rows={previewRows} />
           </section>
+        </section>
+
+        <section className="min-w-0 rounded-card border border-line bg-panel p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">钉图模板导出</h2>
+              <p className="mt-1 text-sm text-textSubtle">Clean Table → Sheet1</p>
+            </div>
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              disabled={loading === "export"}
+              onClick={handleDingmapExport}
+              type="button"
+            >
+              {loading === "export" ? (
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download aria-hidden="true" className="h-4 w-4" />
+              )}
+              <span>导出钉图模板</span>
+            </button>
+          </div>
+
+          {exportErrorMsg ? (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {exportErrorMsg}
+            </div>
+          ) : null}
+
+          {dingmapExportResult ? (
+            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-[1.2fr_0.5fr_0.5fr_auto]">
+              <ResultPill label="文件" value={dingmapExportResult.filename} tone="text-slate-800" />
+              <ResultPill
+                label="导出"
+                value={dingmapExportResult.exportedCount}
+                tone="text-emerald-700"
+              />
+              <ResultPill
+                label="跳过"
+                value={dingmapExportResult.skippedCount}
+                tone="text-slate-600"
+              />
+              <a
+                className="inline-flex h-10 items-center justify-center rounded-md border border-line bg-white px-3 font-medium hover:bg-tableHead"
+                download={dingmapExportResult.filename}
+                href={dingmapExportResult.downloadUrl}
+              >
+                下载文件
+              </a>
+            </div>
+          ) : null}
         </section>
 
         <section className="grid min-w-0 gap-4 xl:grid-cols-2">
@@ -522,7 +610,15 @@ function StatusBadge({ status }: { status: ImportPreviewStatus }) {
   );
 }
 
-function ResultPill({ label, value, tone }: { label: string; value: number; tone: string }) {
+function ResultPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  tone: string;
+}) {
   return (
     <div className="rounded-md border border-line bg-tableHead px-3 py-2">
       <span className="text-textSubtle">{label}</span>
