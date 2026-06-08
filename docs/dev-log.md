@@ -350,3 +350,87 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 ### 下一步
 
 任务卡 002：粘贴模板导入 Clean Table。
+
+## 任务卡 003-A：Clean Table 导出钉图一键录入模板
+
+### 当前状态
+
+已完成标准输出层第一版：Clean Table 可以导出为钉图真实一键导入模板字段的 `.xlsx` 文件。字段配置集中在 `packages/dingmap/export-template.ts`，后续杂乱 Excel、优招、捷聘等数据源进入 Clean Table 后复用同一输出层。
+
+### 已完成
+
+* 新增钉图真实模板字段配置：`标记名称`、`详细地址`、`经度`、`纬度`、`备注`、`字段一`、`字段二`。
+* `标记名称` 映射 `siteName`，`详细地址` 映射 `address`。
+* `经度` / `纬度` 以数字写入，空值留空。
+* `备注` 使用 `buildDingmapDescription(marker)`，继续包含 `【系统同步信息】` 和 `【人工备注】`。
+* `字段一` 使用 `stationManager + phone`。
+* `字段二` 使用 `remark.trim()` 优先，否则 `interviewTime.trim()`，否则留空。
+* `packages/dingmap/one-click-export.ts` 已输出 `Sheet1` 和真实 7 列表头。
+* 新增 `packages/db/dingmap-export.ts`，默认导出 `sync_status = pending` 且 `sync_action = create / update` 的 Clean Marker。
+* 空站点名且空地址的记录会跳过。
+* 导出文件生成到 `data/exports/dingmap-import-YYYYMMDD-HHmmss.xlsx`。
+* Dashboard 新增“钉图模板导出”区域、黑色导出按钮、Loading 状态、文件名、导出条数、跳过条数和下载链接。
+* 新增 API：`POST /api/dingmap/export` 和 `GET /api/dingmap/download/[filename]`。
+* 导出行为写入 `sync_plan` 和 `sync_logs`，不新增 schema。
+* `sync_logs.after_json` 只记录 marker id、source、source id、filename 和字段名，不记录完整地址、手机号或导出行值。
+* 未保存原始钉图模板文件，未保存真实样例数据。
+
+### 不做范围确认
+
+* 不做钉图真实上传。
+* 不做钉图真实登录。
+* 不做 Playwright 自动点击。
+* 不接优招 / 捷聘采集。
+* 不新增数据源。
+* 不改数据库 schema。
+* 不做定时同步任务。
+* 不提交真实业务数据。
+
+### 新增测试
+
+* `packages/dingmap/export-template.test.ts`
+* `packages/dingmap/one-click-export.test.ts`
+* `packages/db/dingmap-export.test.ts`
+
+覆盖内容：
+
+* 真实模板表头顺序。
+* 七个字段映射。
+* `字段二` fallback 规则。
+* 描述字段分区。
+* Excel `Sheet1` 表头。
+* 文件名时间戳格式。
+* 可导出记录过滤。
+* 默认导出路径为项目根 `data/exports`。
+* `sync_plan` / `sync_logs` 写入。
+* 导出日志不包含完整地址或手机号。
+
+### 命令验证
+
+| 命令 | 状态 | 备注 |
+| --- | --- | --- |
+| corepack pnpm check | 成功 | TypeScript 检查通过 |
+| corepack pnpm lint | 成功 | ESLint 通过 |
+| corepack pnpm test | 成功 | 8 个测试文件、25 个测试通过 |
+| corepack pnpm verify | 成功 | check + lint + test 全部通过；受当前沙箱路径限制影响，最终 verify 使用提升权限执行 |
+
+### GitHub Issue 同步
+
+* Task 003 Issue 草稿：`docs/github-issues/task-003-issue.md`
+* 本会话无法通过 GitHub App 直接更新线上 Issue；若线上 Issue 已手动创建，可复制草稿中的 Done 评论。
+
+### 提交记录
+
+* 设计提交：ec1aa150c0ee6090fe66a3810590aac635fc6047
+* 功能提交：07d65518947ee02f1e53db9485eb6d9f685c454c
+
+### 当前风险
+
+* 仍未做钉图真实上传验证，本任务只生成可下载模板文件。
+* 线上 GitHub Issue 是否已更新取决于手动同步或后续授权可用性。
+
+### 下一步
+
+1. 用 Dashboard 导出一份脱敏或本地测试数据生成的 `.xlsx`，手动上传到钉图验证模板兼容性。
+2. 若钉图需要调整列名或字段含义，只改 `packages/dingmap/export-template.ts`。
+3. 后续接入杂乱 Excel、优招、捷聘时，继续先入 Raw Table / Clean Table，再复用本导出层。
