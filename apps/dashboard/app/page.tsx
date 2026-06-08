@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -20,14 +20,14 @@ import {
 } from "lucide-react";
 import type { CleanMarker, ImportPreviewRow, ImportPreviewStatus } from "@dingmap-sync/shared";
 
-const navItems = ["数据源", "Raw 数据", "Clean 数据", "同步计划", "粘贴导入", "日志", "设置"];
+const navItems = ["数据源", "Raw 数据", "Clean 数据", "同步计划", "导入", "日志", "设置"];
 
 const sources = [
   { name: "优招", type: "网页来源插件", status: "预留", icon: Database },
   { name: "捷聘", type: "网页来源插件", status: "预留", icon: Database },
-  { name: "钉图", type: "目标地图", status: "导出优先", icon: MapPinned },
-  { name: "手动粘贴", type: "manual_paste", status: "可导入", icon: ClipboardPaste },
-  { name: "Excel 导入", type: "表格文本", status: "TSV", icon: FileSpreadsheet },
+  { name: "钉图", type: "目标地图", status: "可导出", icon: MapPinned },
+  { name: "字段文本 / TSV", type: "manual_paste", status: "可导入", icon: ClipboardPaste },
+  { name: "Excel 导入", type: ".xlsx", status: "可导入", icon: FileSpreadsheet },
 ];
 
 const statusLabels: Record<ImportPreviewStatus, string> = {
@@ -53,7 +53,12 @@ interface PreviewSummary {
 
 interface PreviewResponse {
   rows: ImportPreviewRow[];
+  rawRows?: unknown[];
   summary: PreviewSummary;
+  filename?: string;
+  sheetNames?: string[];
+  selectedSheetName?: string;
+  error?: string;
 }
 
 interface ImportResult {
@@ -73,6 +78,15 @@ interface DingmapExportResult {
   skippedCount: number;
 }
 
+type LoadingState =
+  | "paste-preview"
+  | "paste-import"
+  | "excel-preview"
+  | "excel-import"
+  | "clean"
+  | "export"
+  | null;
+
 const emptySummary: PreviewSummary = {
   valid: 0,
   invalid: 0,
@@ -82,47 +96,64 @@ const emptySummary: PreviewSummary = {
 
 export default function DashboardPage() {
   const [pasteText, setPasteText] = useState("");
-  const [previewRows, setPreviewRows] = useState<ImportPreviewRow[]>([]);
-  const [summary, setSummary] = useState<PreviewSummary>(emptySummary);
+  const [pastePreviewRows, setPastePreviewRows] = useState<ImportPreviewRow[]>([]);
+  const [pasteSummary, setPasteSummary] = useState<PreviewSummary>(emptySummary);
+  const [pasteImportResult, setPasteImportResult] = useState<ImportResult | null>(null);
+
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelFilename, setExcelFilename] = useState("");
+  const [excelSheetNames, setExcelSheetNames] = useState<string[]>([]);
+  const [excelSelectedSheetName, setExcelSelectedSheetName] = useState("");
+  const [excelRawRows, setExcelRawRows] = useState<unknown[]>([]);
+  const [excelPreviewRows, setExcelPreviewRows] = useState<ImportPreviewRow[]>([]);
+  const [excelSummary, setExcelSummary] = useState<PreviewSummary>(emptySummary);
+  const [excelImportResult, setExcelImportResult] = useState<ImportResult | null>(null);
+
   const [cleanMarkers, setCleanMarkers] = useState<CleanMarker[]>([]);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [dingmapExportResult, setDingmapExportResult] = useState<DingmapExportResult | null>(
     null,
   );
-  const [loading, setLoading] = useState<"preview" | "import" | "clean" | "export" | null>(
-    null,
-  );
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState<LoadingState>(null);
+  const [pasteErrorMsg, setPasteErrorMsg] = useState<string | null>(null);
+  const [excelErrorMsg, setExcelErrorMsg] = useState<string | null>(null);
   const [exportErrorMsg, setExportErrorMsg] = useState<string | null>(null);
 
-  const importableCount = useMemo(
-    () => previewRows.filter((row) => row.status === "valid" || row.status === "update_candidate").length,
-    [previewRows],
+  const pasteImportableCount = useMemo(
+    () =>
+      pastePreviewRows.filter((row) => row.status === "valid" || row.status === "update_candidate")
+        .length,
+    [pastePreviewRows],
+  );
+  const excelImportableCount = useMemo(
+    () =>
+      excelPreviewRows.filter((row) => row.status === "valid" || row.status === "update_candidate")
+        .length,
+    [excelPreviewRows],
   );
 
   const stats = [
     {
       label: "待新增",
-      value: String(summary.valid),
+      value: String(pasteSummary.valid + excelSummary.valid),
       tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
     },
     {
       label: "待更新",
-      value: String(summary.update_candidate),
+      value: String(pasteSummary.update_candidate + excelSummary.update_candidate),
       tone: "border-blue-200 bg-blue-50 text-blue-700",
     },
     {
-      label: "疑似下架",
-      value: "0",
-      tone: "border-amber-200 bg-amber-50 text-amber-700",
+      label: "重复",
+      value: String(pasteSummary.duplicate + excelSummary.duplicate),
+      tone: "border-slate-200 bg-slate-50 text-slate-700",
     },
     {
-      label: "失败",
-      value: String(summary.invalid),
+      label: "无效",
+      value: String(pasteSummary.invalid + excelSummary.invalid),
       tone: "border-red-200 bg-red-50 text-red-700",
     },
     {
-      label: "已导入",
+      label: "Clean Table",
       value: String(cleanMarkers.length),
       tone: "border-slate-200 bg-white text-slate-800",
     },
@@ -139,16 +170,16 @@ export default function DashboardPage() {
       const data = (await response.json()) as { cleanMarkers: CleanMarker[] };
       setCleanMarkers(data.cleanMarkers);
     } catch {
-      setErrorMsg("Clean Table 读取失败。");
+      setPasteErrorMsg("Clean Table 读取失败。");
     } finally {
       setLoading(null);
     }
   }
 
-  async function handlePreview() {
-    setErrorMsg(null);
-    setImportResult(null);
-    setLoading("preview");
+  async function handlePastePreview() {
+    setPasteErrorMsg(null);
+    setPasteImportResult(null);
+    setLoading("paste-preview");
     try {
       const response = await fetch("/api/manual-paste/preview", {
         method: "POST",
@@ -156,35 +187,142 @@ export default function DashboardPage() {
         body: JSON.stringify({ text: pasteText }),
       });
       const data = (await response.json()) as PreviewResponse;
-      setPreviewRows(data.rows);
-      setSummary(data.summary);
-    } catch {
-      setErrorMsg("生成预览失败。");
+      if (!response.ok) {
+        throw new Error(data.error ?? "生成预览失败。");
+      }
+      setPastePreviewRows(data.rows);
+      setPasteSummary(data.summary);
+    } catch (error) {
+      setPasteErrorMsg(error instanceof Error ? error.message : "生成预览失败。");
     } finally {
       setLoading(null);
     }
   }
 
-  async function handleImport() {
-    setErrorMsg(null);
-    setLoading("import");
+  async function handlePasteImport() {
+    setPasteErrorMsg(null);
+    setLoading("paste-import");
     try {
       const response = await fetch("/api/manual-paste/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: previewRows }),
+        body: JSON.stringify({ rows: pastePreviewRows }),
       });
-      const data = (await response.json()) as ImportResult;
-      setImportResult(data);
+      const data = (await response.json()) as ImportResult & { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "导入 Clean Table 失败。");
+      }
+      setPasteImportResult(data);
       setCleanMarkers(data.cleanMarkers);
-      setPreviewRows([]);
-      setSummary(emptySummary);
+      setPastePreviewRows([]);
+      setPasteSummary(emptySummary);
       setPasteText("");
-    } catch {
-      setErrorMsg("导入 Clean Table 失败。");
+    } catch (error) {
+      setPasteErrorMsg(error instanceof Error ? error.message : "导入 Clean Table 失败。");
     } finally {
       setLoading(null);
     }
+  }
+
+  function handlePasteClear() {
+    setPasteText("");
+    setPastePreviewRows([]);
+    setPasteSummary(emptySummary);
+    setPasteImportResult(null);
+    setPasteErrorMsg(null);
+  }
+
+  function handleExcelFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setExcelFile(file);
+    setExcelFilename(file?.name ?? "");
+    setExcelSheetNames([]);
+    setExcelSelectedSheetName("");
+    setExcelRawRows([]);
+    setExcelPreviewRows([]);
+    setExcelSummary(emptySummary);
+    setExcelImportResult(null);
+    setExcelErrorMsg(null);
+  }
+
+  async function handleExcelPreview() {
+    if (!excelFile) {
+      setExcelErrorMsg("请选择 .xlsx 文件。");
+      return;
+    }
+
+    setExcelErrorMsg(null);
+    setExcelImportResult(null);
+    setLoading("excel-preview");
+    try {
+      const formData = new FormData();
+      formData.set("file", excelFile);
+      if (excelSelectedSheetName) {
+        formData.set("sheetName", excelSelectedSheetName);
+      }
+
+      const response = await fetch("/api/excel/preview", {
+        method: "POST",
+        body: formData,
+      });
+      const data = (await response.json()) as PreviewResponse;
+      if (!response.ok) {
+        throw new Error(data.error ?? "Excel 预览失败。");
+      }
+
+      setExcelFilename(data.filename ?? excelFile.name);
+      setExcelSheetNames(data.sheetNames ?? []);
+      setExcelSelectedSheetName(data.selectedSheetName ?? "");
+      setExcelRawRows(data.rawRows ?? []);
+      setExcelPreviewRows(data.rows);
+      setExcelSummary(data.summary);
+    } catch (error) {
+      setExcelErrorMsg(error instanceof Error ? error.message : "Excel 预览失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleExcelImport() {
+    setExcelErrorMsg(null);
+    setLoading("excel-import");
+    try {
+      const response = await fetch("/api/excel/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: excelRawRows }),
+      });
+      const data = (await response.json()) as ImportResult & { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "Excel 导入 Clean Table 失败。");
+      }
+
+      setExcelImportResult(data);
+      setCleanMarkers(data.cleanMarkers);
+      setExcelRawRows([]);
+      setExcelPreviewRows([]);
+      setExcelSummary(emptySummary);
+      setExcelFile(null);
+      setExcelFilename("");
+      setExcelSheetNames([]);
+      setExcelSelectedSheetName("");
+    } catch (error) {
+      setExcelErrorMsg(error instanceof Error ? error.message : "Excel 导入 Clean Table 失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  function handleExcelClear() {
+    setExcelFile(null);
+    setExcelFilename("");
+    setExcelSheetNames([]);
+    setExcelSelectedSheetName("");
+    setExcelRawRows([]);
+    setExcelPreviewRows([]);
+    setExcelSummary(emptySummary);
+    setExcelImportResult(null);
+    setExcelErrorMsg(null);
   }
 
   async function handleDingmapExport() {
@@ -208,14 +346,6 @@ export default function DashboardPage() {
     } finally {
       setLoading(null);
     }
-  }
-
-  function handleClear() {
-    setPasteText("");
-    setPreviewRows([]);
-    setSummary(emptySummary);
-    setImportResult(null);
-    setErrorMsg(null);
   }
 
   return (
@@ -271,7 +401,7 @@ export default function DashboardPage() {
           ))}
         </section>
 
-        <section className="grid min-w-0 gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+        <section className="grid min-w-0 gap-4 lg:grid-cols-[0.82fr_1.18fr]">
           <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-1">
             {sources.map((source) => {
               const Icon = source.icon;
@@ -299,81 +429,70 @@ export default function DashboardPage() {
             })}
           </div>
 
-          <section className="min-w-0 rounded-card border border-line bg-panel p-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold">粘贴导入</h2>
-                <p className="mt-1 text-sm text-textSubtle">manual_paste</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead"
-                  onClick={handleClear}
-                  type="button"
-                >
-                  <RotateCcw aria-hidden="true" className="h-4 w-4" />
-                  <span>清空</span>
-                </button>
-                <button
-                  className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead"
-                  disabled={loading === "preview"}
-                  onClick={handlePreview}
-                  type="button"
-                >
-                  {loading === "preview" ? (
-                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <ClipboardPaste aria-hidden="true" className="h-4 w-4" />
-                  )}
-                  <span>生成预览</span>
-                </button>
-                <button
-                  className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                  disabled={loading === "import" || importableCount === 0}
-                  onClick={handleImport}
-                  type="button"
-                >
-                  {loading === "import" ? (
-                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Upload aria-hidden="true" className="h-4 w-4" />
-                  )}
-                  <span>导入 Clean Table</span>
-                </button>
-              </div>
-            </div>
+          <section className="grid min-w-0 gap-4">
+            <ImportPanel
+              errorMsg={pasteErrorMsg}
+              importResult={pasteImportResult}
+              importableCount={pasteImportableCount}
+              loadingImport={loading === "paste-import"}
+              loadingPreview={loading === "paste-preview"}
+              onClear={handlePasteClear}
+              onImport={handlePasteImport}
+              onPreview={handlePastePreview}
+              rows={pastePreviewRows}
+              subtitle="manual_paste"
+              title="字段文本 / TSV 导入"
+            >
+              <textarea
+                className="h-40 w-full resize-none rounded-md border border-line bg-white p-3 text-sm outline-none placeholder:text-textWeak focus:border-zinc-400"
+                onChange={(event) => setPasteText(event.target.value)}
+                placeholder={"站点名称\t地址\t联系人\t电话\t薪资\t福利\t备注\nAlpha Site\tAlpha Road\tManager A\t..."}
+                value={pasteText}
+              />
+            </ImportPanel>
 
-            <textarea
-              className="mt-4 h-40 w-full resize-none rounded-md border border-line bg-white p-3 text-sm outline-none ring-0 placeholder:text-textWeak focus:border-zinc-400"
-              onChange={(event) => setPasteText(event.target.value)}
-              placeholder={"站点名称\t地址\t联系人\t电话\t薪资\t福利\t备注\n粘贴从 Excel、飞书、微信表格复制出的 TSV 文本"}
-              value={pasteText}
-            />
-
-            {errorMsg ? (
-              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {errorMsg}
+            <ImportPanel
+              errorMsg={excelErrorMsg}
+              importResult={excelImportResult}
+              importableCount={excelImportableCount}
+              loadingImport={loading === "excel-import"}
+              loadingPreview={loading === "excel-preview"}
+              onClear={handleExcelClear}
+              onImport={handleExcelImport}
+              onPreview={handleExcelPreview}
+              rows={excelPreviewRows}
+              subtitle="excel"
+              title="Excel 导入"
+            >
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <label className="flex min-h-24 cursor-pointer flex-col justify-center rounded-md border border-dashed border-line bg-white px-4 py-3 text-sm hover:bg-tableHead">
+                  <span className="font-medium">选择 .xlsx 文件</span>
+                  <span className="mt-1 text-textSubtle">{excelFilename || "未选择文件"}</span>
+                  <input
+                    accept=".xlsx"
+                    className="sr-only"
+                    onChange={handleExcelFileChange}
+                    type="file"
+                  />
+                </label>
+                {excelSheetNames.length > 0 ? (
+                  <label className="flex min-w-52 flex-col gap-2 text-sm">
+                    <span className="text-textSubtle">Sheet</span>
+                    <select
+                      className="h-10 rounded-md border border-line bg-white px-3 outline-none focus:border-zinc-400"
+                      onChange={(event) => setExcelSelectedSheetName(event.target.value)}
+                      value={excelSelectedSheetName}
+                    >
+                      {excelSheetNames.map((sheetName) => (
+                        <option key={sheetName} value={sheetName}>
+                          {sheetName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
               </div>
-            ) : null}
-
-            {importResult ? (
-              <div className="mt-3 grid gap-2 text-sm sm:grid-cols-4">
-                <ResultPill label="新增" value={importResult.inserted} tone="text-emerald-700" />
-                <ResultPill label="更新" value={importResult.updated} tone="text-blue-700" />
-                <ResultPill
-                  label="跳过重复"
-                  value={importResult.skippedDuplicate}
-                  tone="text-slate-600"
-                />
-                <ResultPill
-                  label="无效"
-                  value={importResult.skippedInvalid}
-                  tone="text-red-700"
-                />
-              </div>
-            ) : null}
-
-            <PreviewTable rows={previewRows} />
+            </ImportPanel>
           </section>
         </section>
 
@@ -381,7 +500,7 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold">钉图模板导出</h2>
-              <p className="mt-1 text-sm text-textSubtle">Clean Table → Sheet1</p>
+              <p className="mt-1 text-sm text-textSubtle">Clean Table to Sheet1</p>
             </div>
             <button
               className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
@@ -398,11 +517,7 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          {exportErrorMsg ? (
-            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {exportErrorMsg}
-            </div>
-          ) : null}
+          {exportErrorMsg ? <ErrorBox message={exportErrorMsg} /> : null}
 
           {dingmapExportResult ? (
             <div className="mt-3 grid gap-2 text-sm sm:grid-cols-[1.2fr_0.5fr_0.5fr_auto]">
@@ -457,6 +572,101 @@ export default function DashboardPage() {
   );
 }
 
+function ImportPanel({
+  children,
+  errorMsg,
+  importResult,
+  importableCount,
+  loadingImport,
+  loadingPreview,
+  onClear,
+  onImport,
+  onPreview,
+  rows,
+  subtitle,
+  title,
+}: {
+  children: React.ReactNode;
+  errorMsg: string | null;
+  importResult: ImportResult | null;
+  importableCount: number;
+  loadingImport: boolean;
+  loadingPreview: boolean;
+  onClear: () => void;
+  onImport: () => void;
+  onPreview: () => void;
+  rows: ImportPreviewRow[];
+  subtitle: string;
+  title: string;
+}) {
+  return (
+    <section className="min-w-0 rounded-card border border-line bg-panel p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">{title}</h2>
+          <p className="mt-1 text-sm text-textSubtle">{subtitle}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead"
+            onClick={onClear}
+            type="button"
+          >
+            <RotateCcw aria-hidden="true" className="h-4 w-4" />
+            <span>清空</span>
+          </button>
+          <button
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loadingPreview}
+            onClick={onPreview}
+            type="button"
+          >
+            {loadingPreview ? (
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            ) : (
+              <ClipboardPaste aria-hidden="true" className="h-4 w-4" />
+            )}
+            <span>生成预览</span>
+          </button>
+          <button
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            disabled={loadingImport || importableCount === 0}
+            onClick={onImport}
+            type="button"
+          >
+            {loadingImport ? (
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload aria-hidden="true" className="h-4 w-4" />
+            )}
+            <span>导入 Clean Table</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4">{children}</div>
+
+      {errorMsg ? <ErrorBox message={errorMsg} /> : null}
+
+      {importResult ? (
+        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-5">
+          <ResultPill label="新增" value={importResult.inserted} tone="text-emerald-700" />
+          <ResultPill label="更新" value={importResult.updated} tone="text-blue-700" />
+          <ResultPill
+            label="重复"
+            value={importResult.skippedDuplicate}
+            tone="text-slate-600"
+          />
+          <ResultPill label="无效" value={importResult.skippedInvalid} tone="text-red-700" />
+          <ResultPill label="待更新" value={importResult.updateCandidate} tone="text-blue-700" />
+        </div>
+      ) : null}
+
+      <PreviewTable rows={rows} />
+    </section>
+  );
+}
+
 function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
   return (
     <section className="mt-4 min-w-0 overflow-hidden rounded-card border border-line bg-panel">
@@ -464,29 +674,40 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
         <h2 className="text-base font-semibold">识别预览</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
           <thead className="bg-tableHead text-textSubtle">
             <tr>
-              {["行号", "站点名称", "地址", "联系人", "电话", "薪资", "福利", "备注", "状态", "错误 / 警告"].map(
-                (column) => (
-                  <th key={column} className="px-4 py-3 font-medium">
-                    {column}
-                  </th>
-                ),
-              )}
+              {[
+                "行号",
+                "来源",
+                "站点名称",
+                "地址",
+                "联系人",
+                "电话",
+                "薪资",
+                "福利",
+                "备注",
+                "状态",
+                "错误 / 警告",
+              ].map((column) => (
+                <th key={column} className="px-4 py-3 font-medium">
+                  {column}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-5 text-textWeak" colSpan={10}>
+                <td className="px-4 py-5 text-textWeak" colSpan={11}>
                   暂无预览
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={`${row.rowIndex}-${row.mergeKey ?? "none"}`} className="border-t border-line">
+                <tr key={`${row.source}-${row.rowIndex}-${row.mergeKey ?? "none"}`} className="border-t border-line">
                   <td className="px-4 py-3 text-textSubtle">{row.rowIndex}</td>
+                  <td className="px-4 py-3 text-textSubtle">{row.source}</td>
                   <td className="px-4 py-3">{row.mapped.siteName || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.address || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.stationManager || "-"}</td>
@@ -640,6 +861,14 @@ function StatusPill({
     <div className="flex items-center gap-2 rounded-card border border-line bg-panel px-4 py-3 text-sm shadow-sm">
       <Icon aria-hidden="true" className={`h-4 w-4 ${className}`} />
       <span className="font-medium">{label}</span>
+    </div>
+  );
+}
+
+function ErrorBox({ message }: { message: string }) {
+  return (
+    <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      {message}
     </div>
   );
 }
