@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@dingmap-sync/browser-controller": "workspace:*",
     "@dingmap-sync/shared": "workspace:*",
     "@dingmap-sync/sources": "workspace:*"
   }

@@ -5,6 +5,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@dingmap-sync/db": fileURLToPath(new URL("./packages/db", import.meta.url)),
+      "@dingmap-sync/browser-controller": fileURLToPath(
+        new URL("./packages/browser-controller", import.meta.url),
+      ),
       "@dingmap-sync/dingmap": fileURLToPath(new URL("./packages/dingmap", import.meta.url)),
       "@dingmap-sync/normalizer": fileURLToPath(
         new URL("./packages/normalizer", import.meta.url),

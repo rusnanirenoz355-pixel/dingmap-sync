@@ -96,6 +96,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@dingmap-sync/browser-controller':
+        specifier: workspace:*
+        version: link:../browser-controller
       '@dingmap-sync/shared':
         specifier: workspace:*
         version: link:../shared

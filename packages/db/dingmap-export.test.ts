@@ -1,5 +1,6 @@
 ﻿import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { utimesSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CleanMarker } from "@dingmap-sync/shared";
@@ -7,11 +8,14 @@ import {
   exportDingmapOneClickTemplate,
   filterExportableMarkers,
   isSafeDingmapExportFilename,
+  listDingmapExportFiles,
   resolveDingmapExportFilePath,
+  resolveExistingDingmapExportFilePath,
+  selectLatestDingmapExportFile,
 } from "./dingmap-export";
 
 const databasePath = join(process.cwd(), "data", "test-dingmap-export.db");
-const outputDir = join(process.cwd(), "data", "exports-test");
+const outputDir = join(process.cwd(), "data", "temp", "exports-test");
 
 describe("dingmap export database orchestration", () => {
   beforeEach(() => {
@@ -225,6 +229,36 @@ describe("dingmap export database orchestration", () => {
   it("resolves default export files under the project data exports directory", () => {
     expect(resolveDingmapExportFilePath("dingmap-import-20260608-093000.xlsx")).toBe(
       join(process.cwd(), "data", "exports", "dingmap-import-20260608-093000.xlsx"),
+    );
+  });
+
+  it("rejects path traversal when resolving existing export files", () => {
+    mkdirSync(outputDir, { recursive: true });
+    writeFileSync(join(outputDir, "dingmap-import-20260608-093000.xlsx"), "xlsx");
+
+    expect(() =>
+      resolveExistingDingmapExportFilePath("../dingmap-import-20260608-093000.xlsx", outputDir),
+    ).toThrow("导出文件名无效");
+  });
+
+  it("lists and selects recent export files by modified time", () => {
+    mkdirSync(outputDir, { recursive: true });
+    const olderFile = join(outputDir, "dingmap-import-20260608-093000.xlsx");
+    const newerFile = join(outputDir, "dingmap-import-20260608-100000.xlsx");
+    writeFileSync(olderFile, "older");
+    writeFileSync(newerFile, "newer");
+    writeFileSync(join(outputDir, "notes.txt"), "ignore");
+    utimesSync(olderFile, new Date("2026-06-08T01:30:00Z"), new Date("2026-06-08T01:30:00Z"));
+    utimesSync(newerFile, new Date("2026-06-08T02:00:00Z"), new Date("2026-06-08T02:00:00Z"));
+
+    const files = listDingmapExportFiles(outputDir);
+
+    expect(files.map((file) => file.filename)).toEqual([
+      "dingmap-import-20260608-100000.xlsx",
+      "dingmap-import-20260608-093000.xlsx",
+    ]);
+    expect(selectLatestDingmapExportFile(outputDir)?.filename).toBe(
+      "dingmap-import-20260608-100000.xlsx",
     );
   });
 });

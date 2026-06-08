@@ -636,3 +636,65 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 1. 用脱敏数据人工走一遍导入、管理编辑、软删除、导出链路。
 2. 若需要恢复已删除数据，单独开 Task 006 或后续任务卡。
 3. Task 004 + Task 005 稳定后，统一处理 PR / merge 顺序。
+
+## 任务卡 006-A：钉图模板自动上传 MVP
+
+### 当前状态
+
+已开始并实现 Task 006 第一版本地自动上传 MVP。当前分支为 `codex/task-006-dingmap-auto-upload`，基于已合并 Task 004 / Task 005 的最新 `main` 创建。本任务不改 Task 003 钉图模板字段，只在导出文件之上增加本地 Playwright 上传和 Dashboard 控制入口。
+
+### 已完成
+
+* 新增本地 headful Playwright 钉图上传控制器。
+* 新增 `POST /api/dingmap/upload`、`GET /api/dingmap/upload/status`、`POST /api/dingmap/upload/continue`。
+* 上传 API 改为 job 状态模型，避免无限等待长请求。
+* 支持 `pending`、`opening_dingmap`、`requires_login`、`uploading`、`confirming`、`success`、`failed`、`blocked`、`timeout`、`unknown`。
+* 首次未登录时返回 `requires_login`，保留本地 Playwright 浏览器等待用户手动登录。
+* 验证码、人机验证、页面结构变化等不可自动化情况返回 `blocked`。
+* 文件已提交但无可靠成功提示时返回 `unknown`，Dashboard 文案为“已提交，结果待人工确认”。
+* Dashboard 支持选择最近导出的 `dingmap-import-*.xlsx` 并启动自动上传。
+* 自动化入口修正为钉图地图列表页，先定位“我协作的地图 - 速宸立信 团队”，再进入“面试点”地图。
+* 一键导入入口修正为地图内“图层列表 → 更多 → 数据导入 → 新增数据”。
+* 找不到目标团队或“面试点”地图时返回 `failed`，提示确认钉图权限。
+* 默认上传文件为 `data/exports/` 下最新 `dingmap-import-*.xlsx`。
+* API 只接受文件名，后端执行 basename、格式、resolve、realpath 和 exportsDir 校验。
+* 登录态目录为 `data/browser-profile/dingmap/`。
+* 失败截图目录为 `data/screenshots/dingmap-upload/`，文件名包含 timestamp 和 stage。
+* `.gitignore` 已覆盖 `.env`、`.env.*`、`.auth/`、`data/*.db`、`data/**/*.db`、`data/uploads/`、`data/exports/`、`data/screenshots/`、`data/browser-profile/`。
+* 新增 Task 006 设计说明、任务卡和 GitHub Issue 草稿。
+* 补充真实钉图路径：团队“速宸立信 团队”、地图“面试点”、地图内“图层列表 → 更多 → 数据导入 → 新增数据”。
+* Dashboard “打开钉图”链接改为 `https://dm.dingmap.com/home`，避免暗示直接上传到任意地图页。
+* 上传顺序收紧为先选择并确认当前 Excel 文件，再点击右下角“导入”；未确认文件选择时返回 `blocked / upload-input`，未找到导入按钮时返回 `blocked / import-confirm`。
+
+### 新增 / 更新测试
+
+* 更新 `packages/db/dingmap-export.test.ts`，覆盖导出文件路径穿越拒绝和最近导出选择。
+* 新增 `apps/dashboard/app/api/dingmap/upload/dingmap-upload-routes.test.ts`，覆盖上传 API filename 防护、状态响应和 continue 错误路径。
+* 新增 `packages/browser-controller/dingmap-selectors.test.ts`，锁定目标团队、地图和地图内数据导入入口 selector。
+
+### 命令验证
+
+| 命令 | 状态 | 备注 |
+| --- | --- | --- |
+| corepack pnpm install | 成功 | workspace 依赖同步 |
+| corepack pnpm check | 成功 | TypeScript 检查通过 |
+| corepack pnpm lint | 成功 | ESLint 通过 |
+| corepack pnpm test | 成功 | 18 个测试文件、70 个测试通过 |
+| corepack pnpm verify | 成功 | check + lint + test 全部通过 |
+| Dashboard smoke | 成功 | `http://localhost:3000/` 上传控件可见，“打开钉图”指向 `https://dm.dingmap.com/home` |
+| Upload live smoke | unknown | 使用脱敏 synthetic 导出文件，已进入“速宸立信 团队 / 面试点 / 数据导入”流程并点击“导入”；钉图页面无可靠成功 / 失败提示 |
+| 敏感文件检查 | 成功 | `.env`、数据库、exports、screenshots、browser profile 均未跟踪；`git ls-files` 仅返回既有 `.env.example` 模板 |
+
+### 当前风险
+
+* 钉图外部页面 selector 可能变化。
+* 首次真实上传可能需要手动登录。
+* 如出现验证码、人机验证或权限不足，本任务只能返回 `blocked` / `requires_login` 并保存截图。
+* 如找不到“速宸立信 团队”或“面试点”地图，本任务返回 `failed`，需要确认钉图协作权限。
+* 如钉图上传校验失败，只记录原因和截图，不在本任务修改 Task 003 模板字段。
+
+### 下一步
+
+1. 如需完成真实上传闭环，在已打开的 Playwright 浏览器中手动登录钉图，然后回 Dashboard 点击“继续上传”。
+2. 登录后若钉图返回成功提示，记录 `success`；若无可靠提示，保持 `unknown` 并人工确认钉图侧结果。
+3. PR 前再次运行敏感文件检查，确认 `.env`、数据库、导出文件、截图和 browser profile 未被跟踪。

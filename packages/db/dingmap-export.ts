@@ -1,5 +1,5 @@
-import { mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import type { CleanMarker } from "@dingmap-sync/shared";
@@ -55,7 +55,13 @@ type CleanMarkerDbRow = {
 };
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const DEFAULT_EXPORT_DIR = join(PROJECT_ROOT, "data", "exports");
+export const DEFAULT_EXPORT_DIR = join(PROJECT_ROOT, "data", "exports");
+
+export interface DingmapExportFile {
+  filename: string;
+  filePath: string;
+  mtimeMs: number;
+}
 
 export async function exportDingmapOneClickTemplate(
   options: DingmapExportOptions = {},
@@ -127,11 +133,66 @@ export function resolveDingmapExportFilePath(
   filename: string,
   outputDir = DEFAULT_EXPORT_DIR,
 ): string {
-  if (!isSafeDingmapExportFilename(filename)) {
+  const safeBasename = basename(filename);
+  if (safeBasename !== filename || !isSafeDingmapExportFilename(safeBasename)) {
     throw new Error("导出文件名无效。");
   }
 
-  return join(outputDir, filename);
+  const exportDir = resolve(outputDir);
+  const filePath = resolve(exportDir, safeBasename);
+  assertPathInsideDirectory(filePath, exportDir);
+
+  return filePath;
+}
+
+export function resolveExistingDingmapExportFilePath(
+  filename: string,
+  outputDir = DEFAULT_EXPORT_DIR,
+): string {
+  const filePath = resolveDingmapExportFilePath(filename, outputDir);
+  if (!existsSync(filePath)) {
+    throw new Error("导出文件不存在。");
+  }
+
+  const exportDir = resolve(outputDir);
+  const realExportDir = realpathSync(exportDir);
+  const realFilePath = realpathSync(filePath);
+  assertPathInsideDirectory(realFilePath, realExportDir);
+
+  return realFilePath;
+}
+
+export function listDingmapExportFiles(outputDir = DEFAULT_EXPORT_DIR): DingmapExportFile[] {
+  const exportDir = resolve(outputDir);
+  if (!existsSync(exportDir)) {
+    return [];
+  }
+
+  const realExportDir = realpathSync(exportDir);
+  return readdirSync(realExportDir)
+    .filter(isSafeDingmapExportFilename)
+    .map((filename) => {
+      const filePath = resolveExistingDingmapExportFilePath(filename, realExportDir);
+      return {
+        filename,
+        filePath,
+        mtimeMs: statSync(filePath).mtimeMs,
+      };
+    })
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+}
+
+export function selectLatestDingmapExportFile(
+  outputDir = DEFAULT_EXPORT_DIR,
+): DingmapExportFile | null {
+  return listDingmapExportFiles(outputDir)[0] ?? null;
+}
+
+function assertPathInsideDirectory(filePath: string, directoryPath: string): void {
+  const relation = relative(directoryPath, filePath);
+  if (relation.startsWith("..") || isAbsolute(relation)) {
+    throw new Error("导出文件必须位于 data/exports 目录。");
+  }
 }
 
 function listExportCandidateMarkers(database: DatabaseSync): CleanMarker[] {

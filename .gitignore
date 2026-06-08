@@ -1,12 +1,15 @@
 node_modules/
 .env
 .env.local
+.env.*
 .auth/
 playwright/.auth/
 data/*.db
+data/**/*.db
 data/*.sqlite
 data/*.sqlite3
 data/screenshots/
+data/browser-profile/
 data/uploads/
 data/exports/
 data/temp/

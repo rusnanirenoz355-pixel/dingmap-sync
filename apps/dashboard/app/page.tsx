@@ -7,6 +7,7 @@ import {
   ClipboardPaste,
   Database,
   Download,
+  ExternalLink,
   FileSpreadsheet,
   ListChecks,
   Loader2,
@@ -79,6 +80,40 @@ interface DingmapExportResult {
   skippedCount: number;
 }
 
+type DingmapUploadStatus =
+  | "pending"
+  | "opening_dingmap"
+  | "requires_login"
+  | "uploading"
+  | "confirming"
+  | "success"
+  | "failed"
+  | "blocked"
+  | "timeout"
+  | "unknown";
+
+interface DingmapUploadJob {
+  id: string;
+  status: DingmapUploadStatus;
+  filename: string;
+  message: string;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+  screenshotPath?: string;
+  submitted?: boolean;
+}
+
+interface DingmapExportFileOption {
+  filename: string;
+  mtimeMs: number;
+}
+
+interface DingmapUploadStatusResponse {
+  job: DingmapUploadJob | null;
+  recentExports: DingmapExportFileOption[];
+}
+
 interface CleanMarkerManagementStatistics {
   activeCount: number;
   anomalyCount: number;
@@ -96,6 +131,7 @@ type LoadingState =
   | "excel-import"
   | "clean"
   | "export"
+  | "upload"
   | null;
 
 const emptySummary: PreviewSummary = {
@@ -104,6 +140,26 @@ const emptySummary: PreviewSummary = {
   duplicate: 0,
   update_candidate: 0,
 };
+
+const uploadStatusLabels: Record<DingmapUploadStatus, string> = {
+  pending: "等待上传",
+  opening_dingmap: "正在打开钉图",
+  requires_login: "需要手动登录",
+  uploading: "正在上传文件",
+  confirming: "正在确认导入",
+  success: "上传成功",
+  failed: "上传失败",
+  blocked: "自动化受阻",
+  timeout: "上传超时",
+  unknown: "已提交，结果待人工确认",
+};
+
+const uploadActiveStatuses = new Set<DingmapUploadStatus>([
+  "pending",
+  "opening_dingmap",
+  "uploading",
+  "confirming",
+]);
 
 export default function DashboardPage() {
   const [pasteText, setPasteText] = useState("");
@@ -126,10 +182,14 @@ export default function DashboardPage() {
   const [dingmapExportResult, setDingmapExportResult] = useState<DingmapExportResult | null>(
     null,
   );
+  const [uploadJob, setUploadJob] = useState<DingmapUploadJob | null>(null);
+  const [recentExports, setRecentExports] = useState<DingmapExportFileOption[]>([]);
+  const [selectedUploadFilename, setSelectedUploadFilename] = useState("");
   const [loading, setLoading] = useState<LoadingState>(null);
   const [pasteErrorMsg, setPasteErrorMsg] = useState<string | null>(null);
   const [excelErrorMsg, setExcelErrorMsg] = useState<string | null>(null);
   const [exportErrorMsg, setExportErrorMsg] = useState<string | null>(null);
+  const [uploadErrorMsg, setUploadErrorMsg] = useState<string | null>(null);
 
   const pasteImportableCount = useMemo(
     () =>
@@ -174,7 +234,20 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void loadCleanMarkers();
+    void loadUploadStatus();
   }, []);
+
+  useEffect(() => {
+    if (!uploadJob || !uploadActiveStatuses.has(uploadJob.status)) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadUploadStatus();
+    }, 1500);
+
+    return () => window.clearInterval(timer);
+  }, [uploadJob?.id, uploadJob?.status]);
 
   async function loadCleanMarkers() {
     setLoading("clean");
@@ -359,8 +432,80 @@ export default function DashboardPage() {
       }
 
       setDingmapExportResult(data);
+      setSelectedUploadFilename(data.filename);
+      await loadUploadStatus(data.filename);
     } catch (error) {
       setExportErrorMsg(error instanceof Error ? error.message : "导出钉图模板失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function loadUploadStatus(preferredFilename?: string) {
+    try {
+      const response = await fetch("/api/dingmap/upload/status", { cache: "no-store" });
+      const data = (await response.json()) as DingmapUploadStatusResponse;
+
+      setUploadJob(data.job);
+      setRecentExports(data.recentExports);
+      setSelectedUploadFilename((current) => {
+        if (preferredFilename) {
+          return preferredFilename;
+        }
+
+        if (data.job?.filename) {
+          return data.job.filename;
+        }
+
+        if (current && data.recentExports.some((file) => file.filename === current)) {
+          return current;
+        }
+
+        return data.recentExports[0]?.filename ?? "";
+      });
+    } catch {
+      setUploadErrorMsg("读取钉图上传状态失败。");
+    }
+  }
+
+  async function handleDingmapUpload() {
+    setUploadErrorMsg(null);
+    setLoading("upload");
+    try {
+      const response = await fetch("/api/dingmap/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: selectedUploadFilename || undefined }),
+      });
+      const data = (await response.json()) as { job?: DingmapUploadJob; error?: string };
+      if (!response.ok || !data.job) {
+        throw new Error(data.error ?? "创建钉图上传任务失败。");
+      }
+
+      setUploadJob(data.job);
+      await loadUploadStatus(data.job.filename);
+    } catch (error) {
+      setUploadErrorMsg(error instanceof Error ? error.message : "创建钉图上传任务失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleDingmapUploadContinue() {
+    setUploadErrorMsg(null);
+    setLoading("upload");
+    try {
+      const response = await fetch("/api/dingmap/upload/continue", {
+        method: "POST",
+      });
+      const data = (await response.json()) as { job?: DingmapUploadJob; error?: string };
+      if (!response.ok || !data.job) {
+        throw new Error(data.error ?? "继续钉图上传任务失败。");
+      }
+
+      setUploadJob(data.job);
+    } catch (error) {
+      setUploadErrorMsg(error instanceof Error ? error.message : "继续钉图上传任务失败。");
     } finally {
       setLoading(null);
     }
@@ -586,6 +731,78 @@ export default function DashboardPage() {
               </a>
             </div>
           ) : null}
+
+          <div className="mt-4 grid min-w-0 gap-3 border-t border-line pt-4 lg:grid-cols-[1fr_auto]">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <label className="grid min-w-0 gap-2 text-sm">
+                <span className="font-medium">上传文件</span>
+                <select
+                  className="h-10 min-w-0 rounded-md border border-line bg-white px-3 outline-none focus:border-zinc-400 disabled:cursor-not-allowed disabled:bg-tableHead"
+                  disabled={recentExports.length === 0}
+                  onChange={(event) => setSelectedUploadFilename(event.target.value)}
+                  value={selectedUploadFilename}
+                >
+                  {recentExports.length === 0 ? (
+                    <option value="">暂无导出文件</option>
+                  ) : (
+                    recentExports.map((file) => (
+                      <option key={file.filename} value={file.filename}>
+                        {file.filename}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <a
+                className="inline-flex h-10 items-center justify-center gap-2 self-end rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead"
+                href="https://dm.dingmap.com/home"
+                rel="noreferrer"
+                target="_blank"
+              >
+                <ExternalLink aria-hidden="true" className="h-4 w-4" />
+                <span>打开钉图</span>
+              </a>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-2 lg:justify-end">
+              {uploadJob?.status === "requires_login" ? (
+                <button
+                  className="inline-flex h-10 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                  disabled={loading === "upload"}
+                  onClick={handleDingmapUploadContinue}
+                  type="button"
+                >
+                  {loading === "upload" ? (
+                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play aria-hidden="true" className="h-4 w-4" />
+                  )}
+                  <span>继续上传</span>
+                </button>
+              ) : null}
+              <button
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                disabled={
+                  loading === "upload" ||
+                  recentExports.length === 0 ||
+                  Boolean(uploadJob && uploadActiveStatuses.has(uploadJob.status))
+                }
+                onClick={handleDingmapUpload}
+                type="button"
+              >
+                {loading === "upload" ||
+                Boolean(uploadJob && uploadActiveStatuses.has(uploadJob.status)) ? (
+                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload aria-hidden="true" className="h-4 w-4" />
+                )}
+                <span>自动上传到钉图</span>
+              </button>
+            </div>
+          </div>
+
+          {uploadErrorMsg ? <ErrorBox message={uploadErrorMsg} /> : null}
+          {uploadJob ? <DingmapUploadStatusPanel job={uploadJob} /> : null}
         </section>
 
         <section className="grid min-w-0 gap-4 xl:grid-cols-2">
@@ -615,6 +832,43 @@ export default function DashboardPage() {
       </div>
     </main>
   );
+}
+
+function DingmapUploadStatusPanel({ job }: { job: DingmapUploadJob }) {
+  return (
+    <div className="mt-3 rounded-md border border-line bg-tableHead px-3 py-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span
+          className={`rounded-md border px-2 py-1 text-xs font-medium ${getUploadStatusClass(
+            job.status,
+          )}`}
+        >
+          {uploadStatusLabels[job.status]}
+        </span>
+        <span className="min-w-0 truncate text-textSubtle">{job.filename}</span>
+      </div>
+      <p className="mt-2 text-textSubtle">{job.message}</p>
+      {job.screenshotPath ? (
+        <p className="mt-2 break-all text-textWeak">截图：{job.screenshotPath}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function getUploadStatusClass(status: DingmapUploadStatus): string {
+  if (status === "success") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (status === "unknown" || status === "requires_login") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  if (status === "failed" || status === "blocked" || status === "timeout") {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+
+  return "border-blue-200 bg-blue-50 text-blue-700";
 }
 
 function ImportPanel({
