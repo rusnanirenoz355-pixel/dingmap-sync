@@ -434,3 +434,106 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 1. 用 Dashboard 导出一份脱敏或本地测试数据生成的 `.xlsx`，手动上传到钉图验证模板兼容性。
 2. 若钉图需要调整列名或字段含义，只改 `packages/dingmap/export-template.ts`。
 3. 后续接入杂乱 Excel、优招、捷聘时，继续先入 Raw Table / Clean Table，再复用本导出层。
+
+## 任务卡 004-A：字段文本 / TSV / 带表头 Excel 导入 Clean Table
+
+### 当前状态
+
+已完成 Task 004 第一版导入层：字段名文本、TSV 粘贴、带表头 `.xlsx` 都可以先生成预览，再经服务端二次校验写入 Clean Table。导入后的 Clean Marker 保持 `sync_status = pending` 和 `sync_action = create / update`，继续复用 Task 003 钉图模板导出。
+
+### 已完成
+
+* 新增共享 import pipeline，集中处理字段别名、手机号规范化、校验、merge key、hash、preview summary。
+* 手工粘贴入口保留原函数名，内部改为 key-value / TSV parser + 公共 pipeline。
+* 支持 key-value 字段文本，中文冒号和英文冒号均可解析，空行分隔多条记录。
+* 支持 TSV 粘贴，第一行作为表头。
+* 支持 `.xlsx` 带表头 Excel 导入，默认读取第一个 Sheet，可按 Sheet 名选择。
+* Excel 上传限制为 5 MB，最多 1000 条数据行。
+* Excel 内存解析，不保存上传文件。
+* 新增共享 DB import 服务，导入时从 raw rows 服务端二次 preview，不信任前端 status / mergeKey / currentHash。
+* `valid` 新增，`duplicate` 跳过，`invalid` 跳过，`update_candidate` 默认更新。
+* Excel 写入 `source = excel`、`originType = excel`。
+* 字段文本 / TSV 写入 `source = manual_paste`、`originType = manual_paste`。
+* 新增 Excel preview / import API。
+* Dashboard 新增“字段文本 / TSV 导入”和“Excel 导入”入口，保留 Task 003 “导出钉图模板”按钮。
+* 测试文件不写完整业务手机号字面量，运行时用拼接方式生成合成手机号。
+
+### 隐私和数据口径
+
+* 手机号是业务字段，运行时允许导入 Clean Table、raw_records，并允许导出到钉图模板。
+* 真实手机号、真实地址不写入测试文件、任务卡示例、Issue 草稿、文档样例或 Git 提交样例。
+* 未提交真实 Excel、Cookie、账号信息、`.env`、`.auth`。
+* 未提交 `data/*.db`、`data/uploads/`、`data/exports/`。
+
+### 不做范围确认
+
+* 不做 OCR / 图片识别。
+* 不做无表头猜测。
+* 不做多 Sheet 合并。
+* 不支持 `.xls` / `.csv`。
+* 不做钉图真实上传。
+* 不做钉图登录。
+* 不做 Playwright 自动操作。
+* 不接优招 / 捷聘采集。
+* 不修改 Task 003 钉图 7 列模板。
+* 不改数据库 schema。
+
+### 新增 / 更新测试
+
+* `packages/sources/import-pipeline/preview.test.ts`
+* `packages/sources/manual-paste/parser.test.ts`
+* `packages/db/import-clean-markers.test.ts`
+* `packages/sources/excel-import/parser.test.ts`
+* `apps/dashboard/app/api/excel/excel-routes.test.ts`
+* `packages/normalizer/build-marker-hash.test.ts`
+* `packages/normalizer/normalize-phone.test.ts`
+
+覆盖内容：
+
+* key-value 字段文本解析。
+* TSV 兼容。
+* Excel `.xlsx` 内存解析。
+* Sheet 选择。
+* 文件大小和行数限制。
+* 字段别名映射。
+* 空行跳过。
+* 未识别字段保留在 raw。
+* 手机号规范化。
+* duplicate / invalid / update_candidate。
+* DB insert / update / skip / revalidate。
+* Excel API preview / import。
+* Excel 导入后仍可被 Task 003 export 过滤器选中。
+
+### 命令验证
+
+| 命令 | 状态 | 备注 |
+| --- | --- | --- |
+| corepack pnpm run check | 成功 | TypeScript 检查通过 |
+| corepack pnpm run lint | 成功 | ESLint 通过 |
+| corepack pnpm run test | 成功 | 12 个测试文件、46 个测试通过 |
+| corepack pnpm run verify | 成功 | check + lint + test 全部通过 |
+| Browser smoke | 成功 | Dashboard 可见字段文本 / TSV、Excel 导入、钉图导出、Clean Table，控制台无 error |
+
+### GitHub Issue 同步
+
+* Task 004 Issue 草稿：`docs/github-issues/task-004-issue.md`
+* 当前未直接创建或更新线上 Issue；如线上 Issue 已手动创建，可复制草稿中的 Done 评论。
+
+### 提交记录
+
+* 设计提交：eb7eecd31011258b607872b6fcb6d7f7b7391a77
+* 扩展设计提交：e9471cc8f655c7372f86e5bbf074d0b7e0590727
+* 实现计划提交：fa2ac8f50a82a8cfd63cf654f8fdbed9a42bba6f
+* 功能提交：60a9abad1ab607b3bf07e1c5931cfa004f88e202
+
+### 当前风险
+
+* 第一版仅支持 `.xlsx` 第一行表头。
+* Sheet 可选择但不合并。
+* 仍未做钉图真实上传验证，本任务只负责导入 Clean Table 并复用 Task 003 文件导出层。
+
+### 下一步
+
+1. 使用脱敏或本地测试数据走一次字段文本 / TSV / Excel 导入，再导出钉图模板文件做人工验收。
+2. 若要接优招 / 捷聘，继续保持 Raw Table / Clean Table / DingMap export 的三层路径。
+3. 若后续要支持 `.csv`、`.xls` 或无表头推断，应作为新任务卡处理。
