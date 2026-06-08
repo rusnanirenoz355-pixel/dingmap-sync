@@ -34,6 +34,7 @@ export interface CleanMarker {
   mergeKey?: string | null;
   manualOverride?: boolean;
   errorMsg?: string | null;
+  deletedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

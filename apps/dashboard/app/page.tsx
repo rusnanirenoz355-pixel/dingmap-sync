@@ -14,6 +14,7 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  Settings2,
   Table2,
   Upload,
   XCircle,
@@ -78,6 +79,16 @@ interface DingmapExportResult {
   skippedCount: number;
 }
 
+interface CleanMarkerManagementStatistics {
+  activeCount: number;
+  anomalyCount: number;
+  deletedCount: number;
+}
+
+interface CleanMarkerManagementResponse {
+  statistics: CleanMarkerManagementStatistics;
+}
+
 type LoadingState =
   | "paste-preview"
   | "paste-import"
@@ -110,6 +121,8 @@ export default function DashboardPage() {
   const [excelImportResult, setExcelImportResult] = useState<ImportResult | null>(null);
 
   const [cleanMarkers, setCleanMarkers] = useState<CleanMarker[]>([]);
+  const [managementStats, setManagementStats] =
+    useState<CleanMarkerManagementStatistics | null>(null);
   const [dingmapExportResult, setDingmapExportResult] = useState<DingmapExportResult | null>(
     null,
   );
@@ -154,7 +167,7 @@ export default function DashboardPage() {
     },
     {
       label: "Clean Table",
-      value: String(cleanMarkers.length),
+      value: String(managementStats?.activeCount ?? cleanMarkers.length),
       tone: "border-slate-200 bg-white text-slate-800",
     },
   ];
@@ -166,9 +179,14 @@ export default function DashboardPage() {
   async function loadCleanMarkers() {
     setLoading("clean");
     try {
-      const response = await fetch("/api/clean-markers", { cache: "no-store" });
+      const [response, managementResponse] = await Promise.all([
+        fetch("/api/clean-markers", { cache: "no-store" }),
+        fetch("/api/clean-markers/manage?pageSize=1", { cache: "no-store" }),
+      ]);
       const data = (await response.json()) as { cleanMarkers: CleanMarker[] };
+      const managementData = (await managementResponse.json()) as CleanMarkerManagementResponse;
       setCleanMarkers(data.cleanMarkers);
+      setManagementStats(managementData.statistics);
     } catch {
       setPasteErrorMsg("Clean Table 读取失败。");
     } finally {
@@ -399,6 +417,33 @@ export default function DashboardPage() {
               <p className="mt-3 text-3xl font-semibold leading-none">{stat.value}</p>
             </article>
           ))}
+        </section>
+
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-panel p-4 shadow-sm">
+          <div className="flex min-w-0 flex-wrap gap-2 text-sm">
+            <ResultPill
+              label="有效"
+              value={managementStats?.activeCount ?? cleanMarkers.length}
+              tone="text-slate-800"
+            />
+            <ResultPill
+              label="异常"
+              value={managementStats?.anomalyCount ?? 0}
+              tone="text-amber-700"
+            />
+            <ResultPill
+              label="已删除"
+              value={managementStats?.deletedCount ?? 0}
+              tone="text-slate-600"
+            />
+          </div>
+          <a
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800"
+            href="/data-management"
+          >
+            <Settings2 aria-hidden="true" className="h-4 w-4" />
+            <span>管理已导入数据</span>
+          </a>
         </section>
 
         <section className="grid min-w-0 gap-4 lg:grid-cols-[0.82fr_1.18fr]">

@@ -151,4 +151,13 @@ describe("shared clean marker import database service", () => {
 
     expect(exportable).toHaveLength(1);
   });
+
+  it("excludes soft-deleted rows from default Clean Table lists", () => {
+    importCleanMarkers([validManualRow()]);
+    const database = new DatabaseSync(databasePath);
+    database.prepare("UPDATE clean_markers SET deleted_at = datetime('now')").run();
+    database.close();
+
+    expect(listCleanMarkers()).toHaveLength(0);
+  });
 });
