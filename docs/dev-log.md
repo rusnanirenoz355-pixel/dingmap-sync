@@ -679,7 +679,7 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 | corepack pnpm install | 成功 | workspace 依赖同步 |
 | corepack pnpm check | 成功 | TypeScript 检查通过 |
 | corepack pnpm lint | 成功 | ESLint 通过 |
-| corepack pnpm test | 成功 | 18 个测试文件、70 个测试通过 |
+| corepack pnpm test | 成功 | 21 个测试文件、83 个测试通过 |
 | corepack pnpm verify | 成功 | check + lint + test 全部通过 |
 | Dashboard smoke | 成功 | `http://localhost:3000/` 上传控件可见，“打开钉图”指向 `https://dm.dingmap.com/home` |
 | Upload live smoke | unknown | 使用脱敏 synthetic 导出文件，已进入“速宸立信 团队 / 面试点 / 数据导入”流程并点击“导入”；钉图页面无可靠成功 / 失败提示 |
@@ -698,3 +698,56 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 1. 如需完成真实上传闭环，在已打开的 Playwright 浏览器中手动登录钉图，然后回 Dashboard 点击“继续上传”。
 2. 登录后若钉图返回成功提示，记录 `success`；若无可靠提示，保持 `unknown` 并人工确认钉图侧结果。
 3. PR 前再次运行敏感文件检查，确认 `.env`、数据库、导出文件、截图和 browser profile 未被跟踪。
+
+## 任务卡 006-C：平台选择与导入限制修复
+
+### 当前状态
+
+已在 `codex/task-006-dingmap-auto-upload` 分支继续完善 Task 006 自动上传参数层。本轮不重复向钉图真实提交，不接优招 / 捷聘，不修改 Task 003 钉图模板字段或 Excel 模板字段。
+
+### 已完成
+
+* 新增集中平台配置 `packages/browser-controller/dingmap-platforms.ts`。
+* Dashboard 自动上传区域新增“选择平台”下拉，默认“面试点”，显示中文平台名。
+* 上传 API 接收 `platform`，缺省平台为 `mianshi / 面试点`，非法 key 会先于文件读取返回清晰错误。
+* `GET /api/dingmap/upload/status` 返回 `platformOptions`，供 Dashboard 下拉复用。
+* 平台到图层映射已集中维护：其他点、商超点、淘宝点、美团点、买菜点、面试点。
+* 平台到标记颜色映射已集中维护：其他点=橙色，商超点=紫色，淘宝点=蓝色，美团点=黄色，买菜点=绿色，面试点=红色。
+* 标记大小固定为“小”，坐标类型固定为“火星坐标（高德/腾讯/谷歌）”。
+* 浏览器自动化从左侧图层列表按所选平台图层找“更多”，不再固定第一个图层。
+* 颜色 nth fallback 集中在 selector / platform config 中，流程代码不散落 nth 选择器。
+* 上传前读取导出 Excel 的数据行数；2000 行数据允许，2001 行数据返回 `blocked / row-limit`，且不打开钉图、不上传、不点击导入。
+* 上传 job / Dashboard 状态新增平台、图层、标记样式、标记大小、坐标类型、数据行数和 stage 展示。
+* `sync_logs` 继续记录上传结果，新增平台、图层、颜色、大小、stage 等摘要，不记录 cookie、token、账号、真实导出行内容。
+* 提交导入后不主动关闭 Playwright 浏览器窗口；`unknown` 仍保持人工确认语义，不伪造成 `success`。
+* 减少无意义轮询等待：文件选择确认轮询缩短为 200ms，结果等待轮询缩短为 500ms，仍以 locator / selector 状态为准。
+
+### 新增 / 更新测试
+
+* `packages/browser-controller/dingmap-platforms.test.ts`
+* `packages/browser-controller/dingmap-selectors.test.ts`
+* `packages/dingmap/read-export-row-count.test.ts`
+* `apps/dashboard/app/api/dingmap/upload/dingmap-upload-routes.test.ts`
+
+覆盖内容：
+
+* 平台选项顺序和 key 校验。
+* 平台到图层、颜色、大小、坐标类型映射。
+* 图层“更多” selector 和颜色 nth fallback 集中维护。
+* API status 返回 `platformOptions`。
+* API 无效 `platform` 优先拒绝。
+* Excel 表头 + 2000 数据行允许。
+* Excel 表头 + 2001 数据行阻止上传并返回 `blocked / row-limit`。
+* 路径穿越、缺少 continue job 等既有防护保持有效。
+
+### 命令验证
+
+| 命令 | 状态 | 备注 |
+| --- | --- | --- |
+| `corepack pnpm run verify` | 成功 | check + lint + test 全部通过；21 个测试文件、83 个测试通过 |
+
+### 当前风险
+
+* 钉图外部页面 selector 仍可能变化，变化时应返回 `blocked` 并保存本地截图。
+* 真实钉图上传仍可能遇到登录、验证码、人机验证、权限不足或页面结构变化，本任务不绕过这些限制。
+* 2000 行以上当前只阻止并提示分批导入，不做自动分批。

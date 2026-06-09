@@ -108,7 +108,7 @@ Done:
 
 测试结果：
 
-* 18 个测试文件、70 个测试通过。
+* 21 个测试文件、83 个测试通过。
 
 风险：
 
@@ -116,3 +116,48 @@ Done:
 * 找不到目标团队或“面试点”地图时会返回 `failed`，需要用户确认账号权限。
 * 页面 selector 变化时会返回 `blocked` 并保存截图。
 * 文件提交后无可靠成功提示时返回 `unknown`，需要人工确认钉图侧结果。
+
+## Task 006-C Done 草稿：平台选择与导入限制修复
+
+Done:
+
+* Dashboard 已新增“选择平台”下拉，默认“面试点”。
+* 平台选项：其他点、商超点、淘宝点、美团点、买菜点、面试点。
+* 上传 API 已接收 `platform`，缺省 `mianshi`，非法 key 先返回错误。
+* `GET /api/dingmap/upload/status` 已返回 `platformOptions`。
+* 平台配置集中在 `packages/browser-controller/dingmap-platforms.ts`。
+* 平台到图层映射已完成：other/shangchao/taobao/meituan/maicai/mianshi。
+* 平台到标记颜色映射已完成：橙色/紫色/蓝色/黄色/绿色/红色。
+* 其他点已设置为橙色。
+* 标记大小固定为“小”。
+* 坐标类型保持“火星坐标（高德/腾讯/谷歌）”。
+* 浏览器自动化改为按所选平台图层进入“更多 → 数据导入 → 新增数据”。
+* 颜色 nth fallback 已集中在 selector / platform config 中。
+* 上传前已检查 Excel 数据行数，2000 行按数据行计算，不含表头。
+* 表头 + 2000 行数据允许；表头 + 2001 行数据返回 `blocked / row-limit`。
+* 超过 2000 行时不打开钉图、不上传、不点击导入。
+* 文件选择确认仍保留，确认失败不点击“导入”。
+* 导入提交后不主动关闭 Playwright 浏览器窗口。
+* `unknown` 仍不伪造成 `success`。
+* `sync_logs` 继续记录上传摘要，并记录 platform / layer / color / size / stage，不记录敏感内容。
+
+新增 / 更新测试：
+
+* `packages/browser-controller/dingmap-platforms.test.ts`
+* `packages/browser-controller/dingmap-selectors.test.ts`
+* `packages/dingmap/read-export-row-count.test.ts`
+* `apps/dashboard/app/api/dingmap/upload/dingmap-upload-routes.test.ts`
+
+验证命令：
+
+* `corepack pnpm run verify`
+
+测试结果：
+
+* 21 个测试文件、83 个测试通过。
+
+剩余风险：
+
+* 钉图真实页面 selector 变化时仍可能返回 `blocked`。
+* 真实上传仍可能遇到登录、验证码、人机验证或权限不足。
+* 自动分批导入不在本任务范围内。

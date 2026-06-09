@@ -7,8 +7,15 @@ import {
   DINGMAP_TARGET_MAP_URL,
   DINGMAP_TARGET_TEAM_NAME,
   DINGMAP_TARGET_TEAM_TITLE,
+  buildLayerMoreButtonSelectors,
+  buildMarkerColorSelectors,
   dingmapSelectors,
 } from "./dingmap-selectors";
+import {
+  resolveDingmapPlatform,
+  type DingmapPlatformConfig,
+  type DingmapPlatformKey,
+} from "./dingmap-platforms";
 
 export {
   DINGMAP_HOME_URL,
@@ -41,6 +48,7 @@ export interface DingmapUploadBrowserOptions {
   profileDir: string;
   screenshotsDir: string;
   mapUrl?: string;
+  platform?: DingmapPlatformKey;
   timeoutMs?: number;
   session?: DingmapUploadBrowserSession;
   onStatus?: (status: DingmapUploadStatus, message: string) => void;
@@ -52,6 +60,7 @@ export interface DingmapUploadBrowserResult {
   screenshotPath?: string;
   submitted?: boolean;
   session?: DingmapUploadBrowserSession;
+  stage?: string;
 }
 
 type SelectorGroup = readonly string[];
@@ -66,10 +75,11 @@ export async function runDingmapUploadBrowser(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const startedAt = Date.now();
   const entryUrl = options.mapUrl ?? DINGMAP_HOME_URL;
+  const platform = resolveDingmapPlatform(options.platform);
   const session = options.session ?? (await openDingmapUploadSession(options.profileDir));
 
   try {
-    updateStatus(options, "opening_dingmap", "正在打开钉图地图列表。");
+    updateStatus(options, "opening_dingmap", `正在打开钉图地图列表，目标平台：${platform.label}。`);
     await session.page.goto(entryUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     await waitForPageSettled(session.page);
 
@@ -104,6 +114,7 @@ export async function runDingmapUploadBrowser(
       options.screenshotsDir,
       startedAt,
       timeoutMs,
+      platform,
     );
     if (importDialogOpened) {
       return closeAndReturn(session, importDialogOpened);
@@ -112,6 +123,7 @@ export async function runDingmapUploadBrowser(
     const uploadReady = await prepareAddDataUploadDialog(
       session.page,
       options.screenshotsDir,
+      platform,
     );
     if (uploadReady) {
       return closeAndReturn(session, uploadReady);
@@ -156,16 +168,15 @@ export async function runDingmapUploadBrowser(
     }
 
     const result = await waitForUploadResult(session.page, startedAt, timeoutMs);
-
-    await session.close();
     if (result.status !== "unknown") {
-      return result;
+      return { ...result, session };
     }
 
     return {
       status: "unknown",
       message: "文件已选择并点击“导入”，但页面没有可靠的成功或失败提示，需要人工确认。",
       submitted: true,
+      session,
     };
   } catch (error) {
     const screenshotPath = await saveStageScreenshot(session.page, options.screenshotsDir, "error");
@@ -230,14 +241,20 @@ async function openLayerDataImportDialog(
   screenshotsDir: string,
   startedAt: number,
   timeoutMs: number,
+  platform: DingmapPlatformConfig,
 ): Promise<DingmapUploadBrowserResult | null> {
-  if (!(await clickFirstEnabledVisible(page, dingmapSelectors.layerMoreButtons))) {
+  const layerMoreSelectors = [
+    ...buildLayerMoreButtonSelectors(platform.layerName),
+    ...dingmapSelectors.layerMoreButtons,
+  ];
+
+  if (!(await clickFirstEnabledVisible(page, layerMoreSelectors))) {
     return stageResult(
       page,
       screenshotsDir,
-      "layer-more",
+      "layer",
       "blocked",
-      "未找到“图层列表”当前图层区域里的“更多”按钮，页面结构可能已变化。",
+      `未找到图层：${platform.layerName}。请确认钉图左侧图层列表中存在该图层，并且当前地图为“面试点”。`,
     );
   }
 
@@ -272,6 +289,7 @@ async function openLayerDataImportDialog(
 async function prepareAddDataUploadDialog(
   page: Page,
   screenshotsDir: string,
+  platform: DingmapPlatformConfig,
 ): Promise<DingmapUploadBrowserResult | null> {
   if (!(await clickFirstEnabledVisible(page, dingmapSelectors.addDataTabs))) {
     return stageResult(
@@ -283,11 +301,51 @@ async function prepareAddDataUploadDialog(
     );
   }
 
-  if (!(await hasVisibleSelector(page, dingmapSelectors.coordinateTypeIndicators, SHORT_WAIT_MS))) {
-    // 坐标类型允许保持钉图默认值；这里不强行失败，只保留后续结果判断。
+  const coordinateTypeReady = await ensureCoordinateType(page);
+  if (!coordinateTypeReady) {
+    return stageResult(
+      page,
+      screenshotsDir,
+      "set-coordinate-type",
+      "blocked",
+      "未能确认坐标类型为火星坐标（高德/腾讯/谷歌），已停止自动导入。",
+    );
+  }
+
+  const markerStyleReady = await selectMarkerStyle(page, platform);
+  if (!markerStyleReady) {
+    return stageResult(
+      page,
+      screenshotsDir,
+      "set-marker-style",
+      "blocked",
+      `未能设置标记样式：${platform.markerColorLabel} / ${platform.markerSize}，已停止自动导入。`,
+    );
   }
 
   return null;
+}
+
+async function ensureCoordinateType(page: Page): Promise<boolean> {
+  if (await hasVisibleSelector(page, dingmapSelectors.coordinateTypeIndicators, SHORT_WAIT_MS)) {
+    return true;
+  }
+
+  await clickFirstEnabledVisible(page, dingmapSelectors.coordinateTypeTriggers);
+  return clickFirstEnabledVisible(page, dingmapSelectors.coordinateTypeOptions);
+}
+
+async function selectMarkerStyle(
+  page: Page,
+  platform: DingmapPlatformConfig,
+): Promise<boolean> {
+  await clickFirstEnabledVisible(page, dingmapSelectors.markerStyleTriggers);
+  const colorSelected = await clickFirstEnabledVisible(
+    page,
+    buildMarkerColorSelectors(platform.markerColorLabel, platform.markerColor),
+  );
+  const sizeSelected = await clickFirstEnabledVisible(page, dingmapSelectors.markerSizeOptions);
+  return colorSelected && sizeSelected;
 }
 
 async function uploadExportFile(
@@ -446,7 +504,7 @@ async function waitForSelectedExportFile(page: Page, filename: string): Promise<
       return true;
     }
 
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(200);
   }
 
   return false;
@@ -511,7 +569,7 @@ async function waitForUploadResult(
       };
     }
 
-    await page.waitForTimeout(1_000);
+    await page.waitForTimeout(500);
   }
 
   return {
@@ -531,6 +589,7 @@ async function stageResult(
   return {
     status,
     message,
+    stage,
     screenshotPath: await saveStageScreenshot(page, screenshotsDir, stage),
   };
 }

@@ -12,6 +12,17 @@ import {
   type DingmapUploadStatus,
 } from "@dingmap-sync/browser-controller/dingmap-upload";
 import {
+  DINGMAP_COORDINATE_TYPE,
+  DINGMAP_PLATFORM_OPTIONS,
+  resolveDingmapPlatform,
+  type DingmapPlatformConfig,
+  type DingmapPlatformKey,
+} from "@dingmap-sync/browser-controller/dingmap-platforms";
+import {
+  DingmapUploadRowLimitError,
+  assertDingmapUploadRowLimit,
+} from "@dingmap-sync/dingmap/read-export-row-count";
+import {
   DEFAULT_EXPORT_DIR,
   listDingmapExportFiles,
   resolveExistingDingmapExportFilePath,
@@ -26,7 +37,17 @@ export interface DingmapUploadJobSnapshot {
   id: string;
   status: DingmapUploadStatus;
   filename: string;
+  platform: DingmapPlatformKey;
+  platformLabel: string;
+  layerName: string;
+  markerColor: string;
+  markerColorLabel: string;
+  markerSize: string;
+  coordinateType: string;
   message: string;
+  stage?: string;
+  dataRows?: number;
+  maxRows?: number;
   startedAt: string;
   updatedAt: string;
   finishedAt: string | null;
@@ -37,15 +58,18 @@ export interface DingmapUploadJobSnapshot {
 export interface DingmapUploadStatusResponse {
   job: DingmapUploadJobSnapshot | null;
   recentExports: Array<Pick<DingmapExportFile, "filename" | "mtimeMs">>;
+  platformOptions: Array<Pick<DingmapPlatformConfig, "key" | "label">>;
 }
 
 export interface CreateDingmapUploadJobOptions {
   filename?: string;
+  platform?: unknown;
   timeoutMs?: number;
 }
 
 interface DingmapUploadJob extends DingmapUploadJobSnapshot {
   exportFilePath: string;
+  platformConfig: DingmapPlatformConfig;
   session?: DingmapUploadBrowserSession;
   timeoutMs?: number;
 }
@@ -73,9 +97,9 @@ const ACTIVE_STATUSES = new Set<DingmapUploadStatus>([
 
 const store = getStore();
 
-export function createDingmapUploadJob(
+export async function createDingmapUploadJob(
   options: CreateDingmapUploadJobOptions = {},
-): DingmapUploadJobSnapshot {
+): Promise<DingmapUploadJobSnapshot> {
   if (store.currentJob && ACTIVE_STATUSES.has(store.currentJob.status)) {
     throw new Error("已有钉图上传任务正在执行。");
   }
@@ -84,6 +108,7 @@ export function createDingmapUploadJob(
     throw new Error("已有钉图上传任务等待登录，请先继续该任务。");
   }
 
+  const platform = resolveDingmapPlatform(options.platform);
   const selected = options.filename
     ? {
         filename: options.filename,
@@ -100,14 +125,41 @@ export function createDingmapUploadJob(
     id: `dingmap-upload-${Date.now()}`,
     status: "pending",
     filename: selected.filename,
+    platform: platform.key,
+    platformLabel: platform.label,
+    layerName: platform.layerName,
+    markerColor: platform.markerColor,
+    markerColorLabel: platform.markerColorLabel,
+    markerSize: platform.markerSize,
+    coordinateType: DINGMAP_COORDINATE_TYPE,
     exportFilePath: selected.filePath,
-    message: "等待上传。",
+    platformConfig: platform,
+    message: `等待上传到 ${platform.label} / ${platform.layerName}。`,
     startedAt: now,
     updatedAt: now,
     finishedAt: null,
     timeoutMs: options.timeoutMs,
   };
   store.currentJob = job;
+
+  try {
+    const rowLimit = await assertDingmapUploadRowLimit(job.exportFilePath);
+    job.dataRows = rowLimit.dataRows;
+    job.maxRows = rowLimit.maxRows;
+  } catch (error) {
+    if (error instanceof DingmapUploadRowLimitError) {
+      job.dataRows = error.dataRows;
+      job.maxRows = error.maxRows;
+      job.stage = error.stage;
+      job.finishedAt = new Date().toISOString();
+      setJobStatus(job, "blocked", error.message, error.stage);
+      writeUploadSyncLog(job);
+      return toSnapshot(job);
+    }
+
+    throw error;
+  }
+
   void runJob(job);
   return toSnapshot(job);
 }
@@ -132,6 +184,7 @@ export function getDingmapUploadStatus(): DingmapUploadStatusResponse {
     recentExports: listDingmapExportFiles(DEFAULT_EXPORT_DIR)
       .slice(0, 8)
       .map(({ filename, mtimeMs }) => ({ filename, mtimeMs })),
+    platformOptions: DINGMAP_PLATFORM_OPTIONS.map(({ key, label }) => ({ key, label })),
   };
 }
 
@@ -145,17 +198,19 @@ async function runJob(job: DingmapUploadJob): Promise<void> {
       profileDir: PROFILE_DIR,
       screenshotsDir: SCREENSHOTS_DIR,
       mapUrl: DINGMAP_HOME_URL,
+      platform: job.platform,
       timeoutMs: job.timeoutMs,
       session: job.session,
       onStatus: (status, message) => setJobStatus(job, status, message),
     });
 
-    job.session = result.status === "requires_login" ? result.session : undefined;
+    job.session = result.session;
+    job.stage = result.stage ?? job.stage;
     job.screenshotPath = result.screenshotPath
       ? toProjectRelativePath(result.screenshotPath)
       : undefined;
     job.submitted = result.submitted;
-    setJobStatus(job, result.status, result.message);
+    setJobStatus(job, result.status, result.message, result.stage);
 
     if (TERMINAL_STATUSES.has(result.status)) {
       job.finishedAt = new Date().toISOString();
@@ -169,9 +224,15 @@ async function runJob(job: DingmapUploadJob): Promise<void> {
   }
 }
 
-function setJobStatus(job: DingmapUploadJob, status: DingmapUploadStatus, message: string): void {
+function setJobStatus(
+  job: DingmapUploadJob,
+  status: DingmapUploadStatus,
+  message: string,
+  stage?: string,
+): void {
   job.status = status;
   job.message = message;
+  job.stage = stage ?? job.stage;
   job.updatedAt = new Date().toISOString();
 }
 
@@ -199,9 +260,19 @@ function writeUploadSyncLog(job: DingmapUploadJob): void {
         "upload",
         JSON.stringify({
           filename: job.filename,
-          exportedCount: countExportedRowsForFilename(database, job.filename),
+          exportedCount: job.dataRows ?? countExportedRowsForFilename(database, job.filename),
           status: job.status,
           submitted: Boolean(job.submitted),
+          platform: job.platform,
+          platformLabel: job.platformLabel,
+          layerName: job.layerName,
+          markerColor: job.markerColor,
+          markerColorLabel: job.markerColorLabel,
+          markerSize: job.markerSize,
+          coordinateType: job.coordinateType,
+          stage: job.stage,
+          startedAt: job.startedAt,
+          finishedAt: job.finishedAt,
           teamName: DINGMAP_TARGET_TEAM_NAME,
           mapName: DINGMAP_TARGET_MAP_NAME,
           entryUrl: DINGMAP_HOME_URL,
@@ -252,7 +323,17 @@ function toSnapshot(job: DingmapUploadJob): DingmapUploadJobSnapshot {
     id: job.id,
     status: job.status,
     filename: job.filename,
+    platform: job.platform,
+    platformLabel: job.platformLabel,
+    layerName: job.layerName,
+    markerColor: job.markerColor,
+    markerColorLabel: job.markerColorLabel,
+    markerSize: job.markerSize,
+    coordinateType: job.coordinateType,
     message: job.message,
+    stage: job.stage,
+    dataRows: job.dataRows,
+    maxRows: job.maxRows,
     startedAt: job.startedAt,
     updatedAt: job.updatedAt,
     finishedAt: job.finishedAt,

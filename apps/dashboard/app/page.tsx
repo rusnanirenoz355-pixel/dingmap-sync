@@ -101,7 +101,16 @@ interface DingmapUploadJob {
   id: string;
   status: DingmapUploadStatus;
   filename: string;
+  platform: string;
+  platformLabel: string;
+  layerName: string;
+  markerColorLabel: string;
+  markerSize: string;
+  coordinateType: string;
   message: string;
+  stage?: string;
+  dataRows?: number;
+  maxRows?: number;
   startedAt: string;
   updatedAt: string;
   finishedAt: string | null;
@@ -114,9 +123,15 @@ interface DingmapExportFileOption {
   mtimeMs: number;
 }
 
+interface DingmapPlatformOption {
+  key: string;
+  label: string;
+}
+
 interface DingmapUploadStatusResponse {
   job: DingmapUploadJob | null;
   recentExports: DingmapExportFileOption[];
+  platformOptions: DingmapPlatformOption[];
 }
 
 interface CleanMarkerManagementStatistics {
@@ -145,6 +160,15 @@ const emptySummary: PreviewSummary = {
   duplicate: 0,
   update_candidate: 0,
 };
+
+const fallbackDingmapPlatformOptions: DingmapPlatformOption[] = [
+  { key: "other", label: "其他点" },
+  { key: "shangchao", label: "商超点" },
+  { key: "taobao", label: "淘宝点" },
+  { key: "meituan", label: "美团点" },
+  { key: "maicai", label: "买菜点" },
+  { key: "mianshi", label: "面试点" },
+];
 
 const uploadStatusLabels: Record<DingmapUploadStatus, string> = {
   pending: "等待上传",
@@ -190,6 +214,10 @@ export default function DashboardPage() {
   const [uploadJob, setUploadJob] = useState<DingmapUploadJob | null>(null);
   const [recentExports, setRecentExports] = useState<DingmapExportFileOption[]>([]);
   const [selectedUploadFilename, setSelectedUploadFilename] = useState("");
+  const [uploadPlatformOptions, setUploadPlatformOptions] = useState<DingmapPlatformOption[]>(
+    fallbackDingmapPlatformOptions,
+  );
+  const [selectedUploadPlatform, setSelectedUploadPlatform] = useState("mianshi");
   const [loading, setLoading] = useState<LoadingState>(null);
   const [pasteErrorMsg, setPasteErrorMsg] = useState<string | null>(null);
   const [excelErrorMsg, setExcelErrorMsg] = useState<string | null>(null);
@@ -453,6 +481,12 @@ export default function DashboardPage() {
 
       setUploadJob(data.job);
       setRecentExports(data.recentExports);
+      setUploadPlatformOptions(
+        data.platformOptions?.length ? data.platformOptions : fallbackDingmapPlatformOptions,
+      );
+      if (data.job?.platform) {
+        setSelectedUploadPlatform(data.job.platform);
+      }
       setSelectedUploadFilename((current) => {
         if (preferredFilename) {
           return preferredFilename;
@@ -480,7 +514,10 @@ export default function DashboardPage() {
       const response = await fetch("/api/dingmap/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: selectedUploadFilename || undefined }),
+        body: JSON.stringify({
+          filename: selectedUploadFilename || undefined,
+          platform: selectedUploadPlatform,
+        }),
       });
       const data = (await response.json()) as { job?: DingmapUploadJob; error?: string };
       if (!response.ok || !data.job) {
@@ -738,7 +775,22 @@ export default function DashboardPage() {
           ) : null}
 
           <div className="mt-4 grid min-w-0 gap-3 border-t border-line pt-4 lg:grid-cols-[1fr_auto]">
-            <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1fr)_auto]">
+              <label className="grid min-w-0 gap-2 text-sm">
+                <span className="font-medium">选择平台</span>
+                <select
+                  className="h-10 min-w-0 rounded-md border border-line bg-white px-3 outline-none focus:border-zinc-400 disabled:cursor-not-allowed disabled:bg-tableHead"
+                  disabled={Boolean(uploadJob && uploadActiveStatuses.has(uploadJob.status))}
+                  onChange={(event) => setSelectedUploadPlatform(event.target.value)}
+                  value={selectedUploadPlatform}
+                >
+                  {uploadPlatformOptions.map((platform) => (
+                    <option key={platform.key} value={platform.key}>
+                      {platform.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="grid min-w-0 gap-2 text-sm">
                 <span className="font-medium">上传文件</span>
                 <select
@@ -852,10 +904,39 @@ function DingmapUploadStatusPanel({ job }: { job: DingmapUploadJob }) {
         </span>
         <span className="min-w-0 truncate text-textSubtle">{job.filename}</span>
       </div>
-      <p className="mt-2 text-textSubtle">{job.message}</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <UploadStatusItem label="当前上传平台" value={job.platformLabel} />
+        <UploadStatusItem label="当前图层" value={job.layerName} />
+        <UploadStatusItem label="当前标记样式" value={job.markerColorLabel} />
+        <UploadStatusItem label="当前标记大小" value={job.markerSize} />
+        <UploadStatusItem label="当前上传文件" value={job.filename} />
+        <UploadStatusItem label="当前阶段" value={job.stage ?? job.status} />
+        <UploadStatusItem label="坐标类型" value={job.coordinateType} />
+        <UploadStatusItem
+          label="数据行数"
+          value={
+            typeof job.dataRows === "number"
+              ? `${job.dataRows}/${job.maxRows ?? 2000}`
+              : "-"
+          }
+        />
+      </div>
+      <p className="mt-3 text-textSubtle">{job.message}</p>
+      {job.status === "failed" || job.status === "blocked" || job.status === "timeout" ? (
+        <p className="mt-2 text-red-700">失败原因：{job.message}</p>
+      ) : null}
       {job.screenshotPath ? (
         <p className="mt-2 break-all text-textWeak">截图：{job.screenshotPath}</p>
       ) : null}
+    </div>
+  );
+}
+
+function UploadStatusItem({ label, value }: { label: string; value?: string | number | null }) {
+  return (
+    <div className="min-w-0 rounded-md border border-line bg-white px-3 py-2">
+      <div className="text-xs text-textWeak">{label}</div>
+      <div className="mt-1 truncate font-medium text-textMain">{value || "-"}</div>
     </div>
   );
 }

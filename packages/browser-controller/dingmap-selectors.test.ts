@@ -4,6 +4,8 @@ import {
   DINGMAP_TARGET_MAP_NAME,
   DINGMAP_TARGET_TEAM_NAME,
   DINGMAP_TARGET_TEAM_TITLE,
+  buildLayerMoreButtonSelectors,
+  buildMarkerColorSelectors,
   dingmapSelectors,
 } from "./dingmap-selectors";
 
@@ -21,5 +23,20 @@ describe("dingmap upload selectors", () => {
     expect(dingmapSelectors.addDataTabs).toContain("text=新增数据");
     expect(dingmapSelectors.uploadZones).toContain("text=点击选择导入文件");
     expect(dingmapSelectors.confirmButtons[0]).toContain("导入");
+  });
+
+  it("builds layer-specific more-menu selectors", () => {
+    const selectors = buildLayerMoreButtonSelectors("美团点");
+
+    expect(selectors[0]).toContain("图层列表");
+    expect(selectors[0]).toContain("美团点");
+    expect(selectors[0]).toContain("更多");
+  });
+
+  it("keeps marker color nth fallbacks centralized", () => {
+    const selectors = buildMarkerColorSelectors("黄色", "yellow");
+
+    expect(selectors).toContain("[aria-label*='黄色']");
+    expect(selectors.at(-1)).toContain("[6]");
   });
 });

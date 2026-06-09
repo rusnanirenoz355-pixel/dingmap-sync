@@ -157,3 +157,39 @@ https://dm.dingmap.com/home/map?id=c7b3a5c524864c698416c093843c34c6
 11. 是否优先按“速宸立信 团队 / 面试点”定位目标地图：是。
 12. 是否从地图内“更多 → 数据导入”进入上传：是。
 13. 是否点击“导入”前确认已选择当前 Excel：是。
+
+## 006-C 追加：平台选择、图层样式和 2000 行限制
+
+### 新增范围
+
+* Dashboard 自动上传区域新增“选择平台”，默认“面试点”，选项为：其他点、商超点、淘宝点、美团点、买菜点、面试点。
+* 上传 API 接收 `platform`，缺省为 `mianshi`，非法平台 key 返回清晰错误。
+* 平台配置集中维护在 `packages/browser-controller/dingmap-platforms.ts`，UI、API、browser-controller 复用同一份配置。
+* 平台到图层映射：其他点、商超点、淘宝点、美团点、买菜点、面试点。
+* 平台到颜色映射：其他点=橙色，商超点=紫色，淘宝点=蓝色，美团点=黄色，买菜点=绿色，面试点=红色。
+* 标记大小固定“小”，坐标类型固定“火星坐标（高德/腾讯/谷歌）”。
+* 自动化按用户选择的平台图层点击左侧图层列表中的“更多”，不再固定第一个图层。
+* 导入前检查 Excel 数据行数，表头不计入：2000 行允许，2001 行返回 `blocked / row-limit`。
+* 超过 2000 行时不打开钉图、不上传、不点击导入。
+* 导入提交后不主动关闭 Playwright 浏览器窗口，便于用户人工确认 `unknown`。
+* 仍然不伪造 `unknown` 为 `success`。
+
+### 追加测试
+
+* `packages/browser-controller/dingmap-platforms.test.ts`
+* `packages/dingmap/read-export-row-count.test.ts`
+* `packages/browser-controller/dingmap-selectors.test.ts`
+* `apps/dashboard/app/api/dingmap/upload/dingmap-upload-routes.test.ts`
+
+### 追加自查
+
+1. 是否仍在 `codex/task-006-dingmap-auto-upload`：是。
+2. 是否新增 Dashboard 平台下拉：是。
+3. 是否区分目标地图“面试点”和平台图层“面试点”：是。
+4. 是否其他点为橙色：是。
+5. 是否标记大小固定“小”：是。
+6. 是否 2000 行限制按数据行计算且不含表头：是。
+7. 是否超过 2000 行不打开钉图：是。
+8. 是否保留文件选择确认：是。
+9. 是否 unknown 不伪造成 success：是。
+10. 是否不改 Task 003 模板字段和 Excel 模板字段：是。

@@ -155,3 +155,26 @@ Automated verification covers local boundaries:
 * Upload status and continue error paths.
 
 Manual live DingMap verification may still end as `requires_login`, `blocked`, or `unknown` depending on the external site state. Those are valid MVP outcomes when the page cannot be safely automated to a confirmed success.
+
+## Task 006-C Addendum: Platform Selection And Row Limit
+
+Task 006-C extends the MVP without changing the Task 003 DingMap import template.
+
+Platform configuration is centralized in `packages/browser-controller/dingmap-platforms.ts`. The Dashboard, upload API, job status, sync log payload, and browser automation all use the same platform config. Supported platform keys are `other`, `shangchao`, `taobao`, `meituan`, `maicai`, and `mianshi`; missing platform defaults to `mianshi`.
+
+Platform mapping:
+
+| Platform | Layer | Marker Color | Marker Size |
+| --- | --- | --- | --- |
+| 其他点 | 其他点 | 橙色 | 小 |
+| 商超点 | 商超点 | 紫色 | 小 |
+| 淘宝点 | 淘宝点 | 蓝色 | 小 |
+| 美团点 | 美团点 | 黄色 | 小 |
+| 买菜点 | 买菜点 | 绿色 | 小 |
+| 面试点 | 面试点 | 红色 | 小 |
+
+The target map remains `面试点`; platform selection only chooses the layer inside the map. The browser automation locates the selected layer in the left layer list, opens that layer's `更多` menu, then enters `数据导入 -> 新增数据`. Color swatch nth fallback is allowed only through centralized selector/config helpers.
+
+Before browser automation starts, the upload service reads the generated `.xlsx` and counts data rows without the header row. Header + 2000 data rows is allowed. Header + 2001 data rows returns `blocked` with stage `row-limit`; the service must not open DingMap, upload the file, or click import. Automatic batching is out of scope.
+
+After the import button is clicked, the Playwright browser window is intentionally kept open. `unknown` is preserved when DingMap does not expose a reliable success or failure signal.
