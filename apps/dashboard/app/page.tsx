@@ -21,6 +21,10 @@ import {
   XCircle,
 } from "lucide-react";
 import type { CleanMarker, ImportPreviewRow, ImportPreviewStatus } from "@dingmap-sync/shared";
+import {
+  STICKY_TABLE_HEAD_CLASS,
+  TableScrollFrame,
+} from "./components/TableScrollFrame";
 import { TruncatedText } from "./components/TruncatedText";
 
 const navItems = ["数据源", "Raw 数据", "Clean 数据", "同步计划", "导入", "日志", "设置"];
@@ -988,9 +992,9 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
       <div className="border-b border-line px-4 py-3">
         <h2 className="text-base font-semibold">识别预览</h2>
       </div>
-      <div className="overflow-x-auto">
+      <TableScrollFrame>
         <table className="w-full min-w-[1420px] table-fixed border-collapse text-left text-sm">
-          <thead className="bg-tableHead text-textSubtle">
+          <thead className={STICKY_TABLE_HEAD_CLASS}>
             <tr>
               {columns.map((column) => (
                 <th key={column.label} className={`${column.width} px-4 py-3 font-medium`}>
@@ -1069,7 +1073,7 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
             )}
           </tbody>
         </table>
-      </div>
+      </TableScrollFrame>
     </section>
   );
 }
@@ -1087,9 +1091,9 @@ function CleanMarkerTable({
         <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
         <h2 className="text-base font-semibold">Clean Table</h2>
       </div>
-      <div className="overflow-x-auto">
+      <TableScrollFrame>
         <table className="w-full min-w-[1320px] table-fixed border-collapse text-left text-sm">
-          <thead className="bg-tableHead text-textSubtle">
+          <thead className={STICKY_TABLE_HEAD_CLASS}>
             <tr>
               {[
                 ["站点名称", "w-44"],
@@ -1168,7 +1172,7 @@ function CleanMarkerTable({
             )}
           </tbody>
         </table>
-      </div>
+      </TableScrollFrame>
     </section>
   );
 }
@@ -1188,9 +1192,9 @@ function PlaceholderTable({
         <Icon aria-hidden="true" className="h-4 w-4" />
         <h2 className="text-base font-semibold">{title}</h2>
       </div>
-      <div className="overflow-x-auto">
+      <TableScrollFrame compact>
         <table className="w-full min-w-[680px] table-fixed border-collapse text-left text-sm">
-          <thead className="bg-tableHead text-textSubtle">
+          <thead className={STICKY_TABLE_HEAD_CLASS}>
             <tr>
               {columns.map((column) => (
                 <th key={column} className="px-4 py-3 font-medium">
@@ -1207,7 +1211,7 @@ function PlaceholderTable({
             </tr>
           </tbody>
         </table>
-      </div>
+      </TableScrollFrame>
     </section>
   );
 }

@@ -10,6 +10,10 @@ import {
   ManagementDrawer,
   type EditableFormState,
 } from "../components/ManagementDrawer";
+import {
+  STICKY_TABLE_HEAD_CLASS,
+  TableScrollFrame,
+} from "../components/TableScrollFrame";
 import { TruncatedText } from "../components/TruncatedText";
 
 interface ManagedCleanMarkerListResponse {
@@ -263,9 +267,9 @@ export default function DataManagementPage() {
             {loading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
           </div>
 
-          <div className="overflow-x-auto">
+          <TableScrollFrame>
             <table className="w-full min-w-[1240px] table-fixed border-collapse text-left text-sm">
-              <thead className="bg-tableHead text-textSubtle">
+              <thead className={STICKY_TABLE_HEAD_CLASS}>
                 <tr>
                   <HeaderCell width="w-40">名称</HeaderCell>
                   <HeaderCell width="w-64">地址</HeaderCell>
@@ -341,7 +345,7 @@ export default function DataManagementPage() {
                 )}
               </tbody>
             </table>
-          </div>
+          </TableScrollFrame>
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3 text-sm">
             <span className="text-textSubtle">
