@@ -222,7 +222,13 @@ describe("dingmap export database orchestration", () => {
 
   it("accepts only safe xlsx export filenames", () => {
     expect(isSafeDingmapExportFilename("dingmap-import-20260608-093000.xlsx")).toBe(true);
+    expect(isSafeDingmapExportFilename("dingmap-import-美团点-余杭区第一批-20260609-142530.xlsx")).toBe(
+      true,
+    );
     expect(isSafeDingmapExportFilename("../dingmap-import-20260608-093000.xlsx")).toBe(false);
+    expect(isSafeDingmapExportFilename("dingmap-import-美团点/余杭-20260609-142530.xlsx")).toBe(
+      false,
+    );
     expect(isSafeDingmapExportFilename("dingmap-import-20260608-093000.csv")).toBe(false);
   });
 
@@ -245,16 +251,20 @@ describe("dingmap export database orchestration", () => {
     mkdirSync(outputDir, { recursive: true });
     const olderFile = join(outputDir, "dingmap-import-20260608-093000.xlsx");
     const newerFile = join(outputDir, "dingmap-import-20260608-100000.xlsx");
+    const namedFile = join(outputDir, "dingmap-import-美团点-余杭区第一批-20260608-110000.xlsx");
     writeFileSync(olderFile, "older");
     writeFileSync(newerFile, "newer");
+    writeFileSync(namedFile, "named");
     writeFileSync(join(outputDir, "notes.txt"), "ignore");
     utimesSync(olderFile, new Date("2026-06-08T01:30:00Z"), new Date("2026-06-08T01:30:00Z"));
+    utimesSync(namedFile, new Date("2026-06-08T01:45:00Z"), new Date("2026-06-08T01:45:00Z"));
     utimesSync(newerFile, new Date("2026-06-08T02:00:00Z"), new Date("2026-06-08T02:00:00Z"));
 
     const files = listDingmapExportFiles(outputDir);
 
     expect(files.map((file) => file.filename)).toEqual([
       "dingmap-import-20260608-100000.xlsx",
+      "dingmap-import-美团点-余杭区第一批-20260608-110000.xlsx",
       "dingmap-import-20260608-093000.xlsx",
     ]);
     expect(selectLatestDingmapExportFile(outputDir)?.filename).toBe(

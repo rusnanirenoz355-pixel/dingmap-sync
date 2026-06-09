@@ -13,6 +13,8 @@ import { resolveDatabasePath } from "./database-url";
 export interface DingmapExportOptions {
   now?: Date;
   outputDir?: string;
+  platformLabel?: string;
+  exportName?: string;
 }
 
 export interface DingmapExportResult {
@@ -68,7 +70,10 @@ export async function exportDingmapOneClickTemplate(
 ): Promise<DingmapExportResult> {
   const now = options.now ?? new Date();
   const outputDir = options.outputDir ?? DEFAULT_EXPORT_DIR;
-  const filename = buildDingmapExportFilename(now);
+  const filename = buildDingmapExportFilename(now, {
+    platformLabel: options.platformLabel,
+    exportName: options.exportName,
+  });
   const filePath = join(outputDir, filename);
   const runId = buildRunId(now);
   const database = new DatabaseSync(resolveDatabasePath());
@@ -126,7 +131,7 @@ export function filterExportableMarkers(markers: CleanMarker[]): CleanMarker[] {
 }
 
 export function isSafeDingmapExportFilename(filename: string): boolean {
-  return /^dingmap-import-\d{8}-\d{6}\.xlsx$/.test(filename);
+  return /^dingmap-import-(?:[^\\/:*?"<>|\r\n]+-)?\d{8}-\d{6}\.xlsx$/.test(filename);
 }
 
 export function resolveDingmapExportFilePath(

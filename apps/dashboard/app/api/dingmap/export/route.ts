@@ -1,10 +1,23 @@
 import { exportDingmapOneClickTemplate } from "../../../../../../packages/db/dingmap-export";
+import { resolveDingmapPlatform } from "../../../../../../packages/browser-controller/dingmap-platforms";
 
 export const runtime = "nodejs";
 
-export async function POST(): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   try {
-    const result = await exportDingmapOneClickTemplate();
+    const body = (await request.json().catch(() => ({}))) as {
+      platform?: unknown;
+      exportName?: unknown;
+    };
+    const platform = resolveDingmapPlatform(body.platform);
+    const exportName =
+      typeof body.exportName === "string" && body.exportName.trim()
+        ? body.exportName.trim()
+        : undefined;
+    const result = await exportDingmapOneClickTemplate({
+      platformLabel: platform.label,
+      exportName,
+    });
     const { filePath: _filePath, ...payload } = result;
     return Response.json(payload);
   } catch (error) {

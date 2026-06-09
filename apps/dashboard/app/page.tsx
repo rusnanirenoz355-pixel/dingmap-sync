@@ -218,6 +218,7 @@ export default function DashboardPage() {
     fallbackDingmapPlatformOptions,
   );
   const [selectedUploadPlatform, setSelectedUploadPlatform] = useState("mianshi");
+  const [dingmapExportName, setDingmapExportName] = useState("");
   const [loading, setLoading] = useState<LoadingState>(null);
   const [pasteErrorMsg, setPasteErrorMsg] = useState<string | null>(null);
   const [excelErrorMsg, setExcelErrorMsg] = useState<string | null>(null);
@@ -457,6 +458,11 @@ export default function DashboardPage() {
       const response = await fetch("/api/dingmap/export", {
         method: "POST",
         cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: selectedUploadPlatform,
+          exportName: dingmapExportName,
+        }),
       });
       const data = (await response.json()) as DingmapExportResult & { error?: string };
 
@@ -747,6 +753,19 @@ export default function DashboardPage() {
               )}
               <span>导出钉图模板</span>
             </button>
+          </div>
+
+          <div className="mt-4 grid min-w-0 gap-2 text-sm sm:max-w-xl">
+            <label className="font-medium" htmlFor="dingmap-export-name">
+              导出名称
+            </label>
+            <input
+              className="h-10 min-w-0 rounded-md border border-line bg-white px-3 outline-none placeholder:text-textWeak focus:border-zinc-400"
+              id="dingmap-export-name"
+              onChange={(event) => setDingmapExportName(event.target.value)}
+              placeholder="例如：美团点-余杭区第一批"
+              value={dingmapExportName}
+            />
           </div>
 
           {exportErrorMsg ? <ErrorBox message={exportErrorMsg} /> : null}

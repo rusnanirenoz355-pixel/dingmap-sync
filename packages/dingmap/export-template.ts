@@ -1,5 +1,4 @@
 import type { CleanMarker } from "@dingmap-sync/shared";
-import { buildDingmapDescription } from "./build-description";
 
 export const DINGMAP_IMPORT_HEADERS = [
   "标记名称",
@@ -21,21 +20,35 @@ export function mapCleanMarkerToDingmapImportRow(marker: CleanMarker): DingmapIm
     详细地址: marker.address,
     经度: marker.longitude ?? "",
     纬度: marker.latitude ?? "",
-    备注: buildDingmapDescription(marker),
+    备注: cleanText(marker.salary),
     字段一: buildFieldOne(marker),
     字段二: buildFieldTwo(marker),
   };
 }
 
 function buildFieldOne(marker: Pick<CleanMarker, "stationManager" | "phone">): string {
-  return `${marker.stationManager ?? ""}${marker.phone ?? ""}`;
-}
+  const stationManager = cleanText(marker.stationManager);
+  const phone = cleanText(marker.phone);
 
-function buildFieldTwo(marker: Pick<CleanMarker, "remark" | "interviewTime">): string {
-  const remark = marker.remark?.trim();
-  if (remark) {
-    return remark;
+  if (stationManager && phone) {
+    return `联系人：${stationManager}；电话：${phone}`;
   }
 
-  return marker.interviewTime?.trim() ?? "";
+  if (stationManager) {
+    return `联系人：${stationManager}`;
+  }
+
+  if (phone) {
+    return `电话：${phone}`;
+  }
+
+  return "";
+}
+
+function buildFieldTwo(marker: Pick<CleanMarker, "remark">): string {
+  return cleanText(marker.remark);
+}
+
+function cleanText(value: unknown): string {
+  return String(value ?? "").trim();
 }

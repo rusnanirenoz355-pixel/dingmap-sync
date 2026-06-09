@@ -178,3 +178,35 @@ The target map remains `面试点`; platform selection only chooses the layer in
 Before browser automation starts, the upload service reads the generated `.xlsx` and counts data rows without the header row. Header + 2000 data rows is allowed. Header + 2001 data rows returns `blocked` with stage `row-limit`; the service must not open DingMap, upload the file, or click import. Automatic batching is out of scope.
 
 After the import button is clicked, the Playwright browser window is intentionally kept open. `unknown` is preserved when DingMap does not expose a reliable success or failure signal.
+
+## Task 006-D Addendum: Template Mapping And Export Naming
+
+Task 006-D changes only the DingMap export layer and Dashboard export naming controls. It does not change the browser upload flow, platform-to-layer mapping, marker color mapping, row limit, or `unknown` semantics.
+
+The exported workbook keeps the real DingMap template headers in this exact order:
+
+```text
+标记名称 / 详细地址 / 经度 / 纬度 / 备注 / 字段一 / 字段二
+```
+
+Mapping:
+
+| DingMap Column | Clean Table Source |
+| --- | --- |
+| 标记名称 | `siteName` |
+| 详细地址 | `address` |
+| 经度 | `longitude` |
+| 纬度 | `latitude` |
+| 备注 | `salary` |
+| 字段一 | `stationManager` + `phone` |
+| 字段二 | `remark` |
+
+`字段一` is formatted as `联系人：...；电话：...` when both values exist, and omits missing parts without writing `undefined`, `null`, or `-`.
+
+The Dashboard export panel now accepts an optional export name. Generated filenames use:
+
+```text
+dingmap-import-{platformLabel}-{exportName}-{YYYYMMDD-HHmmss}.xlsx
+```
+
+When the export name is blank, the filename still includes the platform label. Filename segments are sanitized for Windows-invalid characters and the file remains under `data/exports/`. Existing timestamp-only filenames remain valid for listing, selection, download, upload, and row-limit checks.
