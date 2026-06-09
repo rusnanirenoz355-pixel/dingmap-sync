@@ -350,15 +350,17 @@ function mapManagedCleanMarkerRow(
 function deriveAnomalyReasons(
   row: Pick<
     CleanMarkerDbRow,
-    "longitude" | "latitude" | "error_msg" | "merge_key" | "deleted_at"
+    "address" | "longitude" | "latitude" | "error_msg" | "merge_key" | "deleted_at"
   >,
   duplicateCounts: Map<string, number>,
 ): CleanMarkerAnomalyReason[] {
   const reasons: CleanMarkerAnomalyReason[] = [];
+  const hasAddress = Boolean(row.address.trim());
   const longitude = row.longitude;
   const latitude = row.latitude;
+  const hasCompleteCoordinates = longitude !== null && latitude !== null;
 
-  if (longitude === null || latitude === null) {
+  if (!hasAddress && !hasCompleteCoordinates) {
     reasons.push("missing_coordinates");
   }
 

@@ -31,7 +31,7 @@ describe("dingmap one click export", () => {
       "字段二",
     ]);
     expect(worksheet?.getRow(2).getCell(1).value).toBe("测试站点");
-    expect(worksheet?.getRow(2).getCell(6).value).toBe("联系人：张三；电话：测试号码");
+    expect(worksheet?.getRow(2).getCell(6).value).toBe("张三 测试号码");
   });
 
   it("generates timestamped xlsx filenames", () => {

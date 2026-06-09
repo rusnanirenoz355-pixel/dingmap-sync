@@ -28,9 +28,17 @@ describe("dingmap upload selectors", () => {
   it("builds layer-specific more-menu selectors", () => {
     const selectors = buildLayerMoreButtonSelectors("美团点");
 
-    expect(selectors[0]).toContain("图层列表");
-    expect(selectors[0]).toContain("美团点");
-    expect(selectors[0]).toContain("更多");
+    expect(selectors.every((selector) => selector.includes("图层列表"))).toBe(true);
+    expect(selectors.every((selector) => selector.includes("美团点"))).toBe(true);
+    expect(selectors.every((selector) => selector.includes("更多"))).toBe(true);
+    expect(selectors.every((selector) => selector.includes("ancestor::"))).toBe(true);
+    expect(selectors.some((selector) => selector.includes("following::button"))).toBe(false);
+  });
+
+  it("does not expose unscoped global layer more-button fallbacks", () => {
+    expect(dingmapSelectors.layerMoreButtons).not.toContain("button:has-text('更多')");
+    expect(dingmapSelectors.layerMoreButtons).not.toContain("[aria-label*='更多']");
+    expect(dingmapSelectors.layerMoreButtons).not.toContain("[title*='更多']");
   });
 
   it("keeps marker color nth fallbacks centralized", () => {

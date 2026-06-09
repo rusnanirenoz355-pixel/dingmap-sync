@@ -190,3 +190,48 @@ Done:
 风险：
 
 * 已存在的旧导出文件名仍显示为旧格式；重新导出后才会生成更可读的新文件名。
+
+## Task 006-E Done 草稿：验收问题集中修复
+
+Done:
+
+* 已修复图层“更多”锚点：自动化先按目标图层名称定位图层卡片，再点击该卡片内部“更多”。
+* 已移除全局第一个“更多”兜底，避免点到其他图层。
+* 已在点击候选 locator 前执行 `scrollIntoViewIfNeeded`，支持图层在列表下方时滚动查找。
+* 找不到目标图层时返回 `blocked / layer-not-found`，Dashboard 可显示明确提示。
+* 已修复中文文件名下载：路由解码 URL filename，响应头使用 ASCII fallback + `filename*=UTF-8''...`。
+* 下载路由继续使用 `data/exports/` 内 realpath 校验，拒绝路径穿越和目录外文件。
+* 已为下载响应补充 `Content-Length`。
+* 已调整识别预览字段：行号、来源、站点名称、站点地址、联系人、薪资待遇、福利待遇、交付条件、原始文本、状态、错误 / 警告。
+* 已删除独立电话列；联系人列合并联系人和电话，格式为 `联系人 电话`。
+* 已调整无坐标异常规则：无经纬度但有站点地址视为正常；无地址且无完整坐标才标记异常。
+* 已统一钉图模板映射：标记名称=站点名称，详细地址=站点地址，经度=经度，纬度=纬度，备注=薪资待遇，字段一=联系人 + 电话，字段二=交付条件。
+* 未扩展钉图模板列，表头仍为：标记名称、详细地址、经度、纬度、备注、字段一、字段二。
+* 未修改平台颜色映射、2000 行限制、unknown 状态逻辑。
+* 未做真实钉图重复提交。
+
+新增 / 更新测试：
+
+* `packages/browser-controller/dingmap-selectors.test.ts`
+* `apps/dashboard/app/api/dingmap/download/dingmap-download-route.test.ts`
+* `apps/dashboard/app/dashboard-preview-fields.test.ts`
+* `packages/db/clean-marker-management.test.ts`
+* `packages/dingmap/export-template.test.ts`
+* `packages/dingmap/one-click-export.test.ts`
+
+验证命令：
+
+* `corepack pnpm run check`
+* `corepack pnpm run lint`
+* `corepack pnpm run test`
+* `corepack pnpm run verify`
+
+测试结果：
+
+* `corepack pnpm run verify` 通过。
+* 23 个测试文件、95 个测试通过。
+
+剩余风险：
+
+* 钉图外部页面 DOM 仍可能变化，后续可按需要补本地 inspector/debug 脚本。
+* 真实上传仍可能遇到登录、验证码、人机验证或权限阻塞。

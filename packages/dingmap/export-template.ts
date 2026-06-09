@@ -31,15 +31,15 @@ function buildFieldOne(marker: Pick<CleanMarker, "stationManager" | "phone">): s
   const phone = cleanText(marker.phone);
 
   if (stationManager && phone) {
-    return `联系人：${stationManager}；电话：${phone}`;
+    return `${stationManager} ${phone}`;
   }
 
   if (stationManager) {
-    return `联系人：${stationManager}`;
+    return stationManager;
   }
 
   if (phone) {
-    return `电话：${phone}`;
+    return phone;
   }
 
   return "";

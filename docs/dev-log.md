@@ -802,3 +802,44 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 
 * 真实钉图模板文件只作为字段参考，未保存到项目或 Git。
 * 旧导出文件仍可被下拉识别；如用户要按平台快速识别，需要重新导出生成新命名文件。
+
+## 任务卡 006-E：钉图验收问题集中修复
+
+### 当前状态
+
+已完成钉图自动上传验收修复。本轮只修验收问题：目标图层“更多”锚点、中文文件名下载、识别预览字段、无坐标异常规则、钉图模板字段一格式统一。不做真实重复提交，不改平台颜色映射、2000 行限制或 `unknown` 状态逻辑。
+
+### 修复内容
+
+* 图层定位：自动化只使用目标图层名称生成 scoped locator，先定位目标图层卡片，再点击卡片内部“更多”；移除全局 `button:has-text('更多')` 兜底。
+* 滚动查找：点击候选 locator 前执行 `scrollIntoViewIfNeeded`，目标图层不可见时可先滚动到位。
+* 图层缺失：找不到目标图层时返回 `blocked / layer-not-found`，提示确认当前地图“面试点”的左侧图层列表中存在该图层。
+* 中文下载：下载路由解码 URL filename，继续通过 basename / realpath / `data/exports/` 校验；响应头使用 `filename="dingmap-import.xlsx"` + `filename*=UTF-8''...`，并补充 `Content-Length`。
+* 识别预览：字段调整为“行号、来源、站点名称、站点地址、联系人、薪资待遇、福利待遇、交付条件、原始文本、状态、错误 / 警告”。
+* 联系人列：联系人与电话合并为 `联系人 电话`，无独立电话列，不输出 `undefined` / `null` / `-`。
+* 异常规则：无经纬度但有站点地址的 Clean Marker 视为正常；无地址且无完整坐标才标记 `missing_coordinates`。
+* 模板映射：表头仍固定为“标记名称、详细地址、经度、纬度、备注、字段一、字段二”；“备注”写薪资待遇，“字段一”写联系人 + 电话简洁格式，“字段二”写交付条件。
+
+### 新增 / 更新测试
+
+* `packages/browser-controller/dingmap-selectors.test.ts`
+* `apps/dashboard/app/api/dingmap/download/dingmap-download-route.test.ts`
+* `apps/dashboard/app/dashboard-preview-fields.test.ts`
+* `packages/db/clean-marker-management.test.ts`
+* `packages/dingmap/export-template.test.ts`
+* `packages/dingmap/one-click-export.test.ts`
+
+### 命令验证
+
+| 命令 | 状态 | 备注 |
+| --- | --- | --- |
+| `corepack pnpm run check` | 成功 | TypeScript 检查通过 |
+| `corepack pnpm run lint` | 成功 | ESLint 通过 |
+| `corepack pnpm run test` | 成功 | 23 个测试文件、95 个测试通过 |
+| `corepack pnpm run verify` | 成功 | check + lint + test 全部通过；23 个测试文件、95 个测试通过 |
+
+### 当前风险
+
+* 钉图真实页面 DOM 仍可能变化；当前策略是 scoped 文本锚点 + 滚动，失败时返回 `blocked` 并保留 stage。
+* 本轮未新增 debug / inspector 脚本；如后续真实页面仍变动，可补本地定位脚本。
+* 未做真实钉图重复提交，避免误写线上数据。

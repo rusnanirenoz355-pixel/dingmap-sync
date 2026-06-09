@@ -18,13 +18,7 @@ export const dingmapSelectors = {
   ],
   captchaIndicators: ["text=验证码", "text=人机验证", "text=安全验证", "iframe[src*='captcha']"],
   layerList: ["text=图层列表"],
-  layerMoreButtons: [
-    "xpath=(//*[contains(normalize-space(.), '图层列表')]/following::button[contains(normalize-space(.), '更多') or contains(@aria-label, '更多') or contains(@title, '更多')])[1]",
-    "xpath=(//*[contains(normalize-space(.), '图层列表')]/following::*[@role='button' and (contains(normalize-space(.), '更多') or contains(@aria-label, '更多') or contains(@title, '更多'))])[1]",
-    "button:has-text('更多')",
-    "[aria-label*='更多']",
-    "[title*='更多']",
-  ],
+  layerMoreButtons: [],
   dataImportMenuItems: [
     "text=数据导入",
     "[role='menuitem']:has-text('数据导入')",
@@ -91,10 +85,12 @@ export const dingmapSelectors = {
 
 export function buildLayerMoreButtonSelectors(layerName: string): string[] {
   const layerText = toXPathString(layerName);
+  const moreButtonPredicate =
+    "contains(normalize-space(.), '更多') or contains(@aria-label, '更多') or contains(@title, '更多')";
   return [
-    `xpath=(//*[contains(normalize-space(.), '图层列表')]/following::*[contains(normalize-space(.), ${layerText})][1]/following::button[contains(normalize-space(.), '更多') or contains(@aria-label, '更多') or contains(@title, '更多')])[1]`,
-    `xpath=(//*[contains(normalize-space(.), '图层列表')]/following::*[contains(normalize-space(.), ${layerText})][1]/following::*[@role='button' and (contains(normalize-space(.), '更多') or contains(@aria-label, '更多') or contains(@title, '更多'))])[1]`,
-    `xpath=(//*[contains(normalize-space(.), ${layerText})]/following::button[contains(normalize-space(.), '更多') or contains(@aria-label, '更多') or contains(@title, '更多')])[1]`,
+    `xpath=(//*[contains(normalize-space(.), '图层列表')]/following::*[text()[contains(normalize-space(.), ${layerText})]][1]/ancestor::*[.//button[${moreButtonPredicate}]][1]//button[${moreButtonPredicate}])[1]`,
+    `xpath=(//*[contains(normalize-space(.), '图层列表')]/following::*[text()[contains(normalize-space(.), ${layerText})]][1]/ancestor::*[.//*[@role='button' and (${moreButtonPredicate})]][1]//*[@role='button' and (${moreButtonPredicate})])[1]`,
+    `xpath=(//*[contains(normalize-space(.), '图层列表')]/following::*[contains(normalize-space(.), ${layerText})][1]/ancestor::*[.//button[${moreButtonPredicate}] or .//*[@role='button' and (${moreButtonPredicate})]][1]//*[self::button or @role='button'][${moreButtonPredicate}])[1]`,
   ];
 }
 

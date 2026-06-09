@@ -242,3 +242,63 @@ https://dm.dingmap.com/home/map?id=c7b3a5c524864c698416c093843c34c6
 8. 是否文件名可包含用户自定义名称：是。
 9. 是否兼容旧导出文件名：是。
 10. 是否不影响自动上传 platform 参数和 2000 行限制：是。
+
+## 006-E 追加：验收问题集中修复
+
+### 修复范围
+
+* 图层“更多”锚点：按目标图层卡片 scoped locator 点击，不再使用全局第一个“更多”。
+* 图层滚动：点击候选 locator 前执行 `scrollIntoViewIfNeeded`。
+* 图层缺失：返回 `blocked / layer-not-found`，提示“未找到图层：{图层名}。请确认当前地图“面试点”的左侧图层列表中存在该图层。”
+* 中文下载：下载接口支持中文文件名和中文平台名文件名，响应头包含 `filename*` 和 `Content-Length`，并继续做 `data/exports/` 安全校验。
+* 识别预览字段：地址改“站点地址”，薪资改“薪资待遇”，福利改“福利待遇”，备注改“交付条件”，联系人列合并电话，删除独立电话列。
+* Clean Table 管理异常：有站点地址但无经纬度视为正常；无地址且无完整坐标才标记 `missing_coordinates`。
+* 钉图模板映射：字段一改为简洁 `联系人 电话`，字段二写交付条件，不扩展模板列。
+
+### 最新钉图模板字段映射
+
+| 钉图模板字段 | 系统字段 / 逻辑 |
+| --- | --- |
+| 标记名称 | 站点名称 |
+| 详细地址 | 站点地址 |
+| 经度 | 经度 |
+| 纬度 | 纬度 |
+| 备注 | 薪资待遇 |
+| 字段一 | 联系人 + 电话，格式为 `联系人 电话` |
+| 字段二 | 交付条件 |
+
+### 006-E 测试
+
+* `packages/browser-controller/dingmap-selectors.test.ts`
+* `apps/dashboard/app/api/dingmap/download/dingmap-download-route.test.ts`
+* `apps/dashboard/app/dashboard-preview-fields.test.ts`
+* `packages/db/clean-marker-management.test.ts`
+* `packages/dingmap/export-template.test.ts`
+* `packages/dingmap/one-click-export.test.ts`
+
+### 006-E 验证
+
+* `corepack pnpm run check`：通过。
+* `corepack pnpm run lint`：通过。
+* `corepack pnpm run test`：通过，23 个测试文件、95 个测试。
+* `corepack pnpm run verify`：通过，23 个测试文件、95 个测试。
+
+### 006-E 自查
+
+1. 是否仍在 `codex/task-006-dingmap-auto-upload`：是。
+2. 是否没有全局点击第一个“更多”：是。
+3. 是否按目标图层卡片 scoped locator 点击“更多”：是。
+4. 是否支持滚动查找图层：是。
+5. 是否中文文件名可下载：是，已覆盖路由测试。
+6. 是否下载防路径穿越：是。
+7. 是否字段文本 / TSV 预览改为新字段：是。
+8. 是否删除电话列并合并联系人：是。
+9. 是否没有 `undefined` / `null` / `-`：是。
+10. 是否无经纬度但有站点地址为正常：是。
+11. 是否模板表头固定：是。
+12. 是否薪资待遇写入钉图“备注”：是。
+13. 是否联系人写入钉图“字段一”：是，格式为 `联系人 电话`。
+14. 是否交付条件写入钉图“字段二”：是。
+15. 是否不扩展模板新列：是。
+16. 是否不破坏 2000 行限制、平台颜色和 unknown：是。
+17. 是否未提交真实 Excel、截图、DB、cookie、token、登录态：是。

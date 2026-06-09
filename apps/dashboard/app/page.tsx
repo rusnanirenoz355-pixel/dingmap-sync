@@ -1076,12 +1076,11 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
     { label: "行号", width: "w-16" },
     { label: "来源", width: "w-28" },
     { label: "站点名称", width: "w-44" },
-    { label: "地址", width: "w-64" },
-    { label: "联系人", width: "w-36" },
-    { label: "电话", width: "w-36" },
-    { label: "薪资", width: "w-48" },
-    { label: "福利", width: "w-48" },
-    { label: "备注", width: "w-52" },
+    { label: "站点地址", width: "w-64" },
+    { label: "联系人", width: "w-44" },
+    { label: "薪资待遇", width: "w-48" },
+    { label: "福利待遇", width: "w-48" },
+    { label: "交付条件", width: "w-52" },
     { label: "原始文本", width: "w-56" },
     { label: "状态", width: "w-28" },
     { label: "错误 / 警告", width: "w-64" },
@@ -1093,7 +1092,7 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
         <h2 className="text-base font-semibold">识别预览</h2>
       </div>
       <TableScrollFrame>
-        <table className="w-full min-w-[1420px] table-fixed border-collapse text-left text-sm">
+        <table className="w-full min-w-[1320px] table-fixed border-collapse text-left text-sm">
           <thead className={STICKY_TABLE_HEAD_CLASS}>
             <tr>
               {columns.map((column) => (
@@ -1126,31 +1125,30 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
                   <TableTextCell
                     className="text-textSubtle"
                     maxLength={72}
-                    popoverTitle="地址"
+                    popoverTitle="站点地址"
                     value={row.mapped.address}
                   />
                   <TableTextCell
                     maxLength={48}
                     popoverTitle="联系人"
-                    value={row.mapped.stationManager}
+                    value={formatPreviewContact(row.mapped.stationManager, row.mapped.phone)}
                   />
-                  <TableTextCell maxLength={40} popoverTitle="电话" value={row.mapped.phone} />
                   <TableTextCell
                     className="text-textSubtle"
                     maxLength={64}
-                    popoverTitle="薪资"
+                    popoverTitle="薪资待遇"
                     value={row.mapped.salary}
                   />
                   <TableTextCell
                     className="text-textSubtle"
                     maxLength={64}
-                    popoverTitle="福利"
+                    popoverTitle="福利待遇"
                     value={row.mapped.welfare}
                   />
                   <TableTextCell
                     className="text-textSubtle"
                     maxLength={72}
-                    popoverTitle="备注"
+                    popoverTitle="交付条件"
                     value={row.mapped.remark}
                   />
                   <TableTextCell
@@ -1176,6 +1174,13 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
       </TableScrollFrame>
     </section>
   );
+}
+
+function formatPreviewContact(stationManager?: unknown, phone?: unknown): string {
+  return [stationManager, phone]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
 }
 
 function CleanMarkerTable({

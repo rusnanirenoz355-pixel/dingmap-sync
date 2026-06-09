@@ -243,18 +243,15 @@ async function openLayerDataImportDialog(
   timeoutMs: number,
   platform: DingmapPlatformConfig,
 ): Promise<DingmapUploadBrowserResult | null> {
-  const layerMoreSelectors = [
-    ...buildLayerMoreButtonSelectors(platform.layerName),
-    ...dingmapSelectors.layerMoreButtons,
-  ];
+  const layerMoreSelectors = buildLayerMoreButtonSelectors(platform.layerName);
 
   if (!(await clickFirstEnabledVisible(page, layerMoreSelectors))) {
     return stageResult(
       page,
       screenshotsDir,
-      "layer",
+      "layer-not-found",
       "blocked",
-      `未找到图层：${platform.layerName}。请确认钉图左侧图层列表中存在该图层，并且当前地图为“面试点”。`,
+      `未找到图层：${platform.layerName}。请确认当前地图“${DINGMAP_TARGET_MAP_NAME}”的左侧图层列表中存在该图层。`,
     );
   }
 
@@ -468,6 +465,11 @@ async function clickFirstEnabledVisible(page: Page, selectors: SelectorGroup): P
   for (const selector of selectors) {
     try {
       const locator = page.locator(selector).first();
+      if ((await locator.count()) === 0) {
+        continue;
+      }
+
+      await locator.scrollIntoViewIfNeeded({ timeout: SHORT_WAIT_MS }).catch(() => undefined);
       if ((await isLocatorVisible(locator)) && (await locator.isEnabled())) {
         await locator.click({ timeout: SHORT_WAIT_MS });
         return true;

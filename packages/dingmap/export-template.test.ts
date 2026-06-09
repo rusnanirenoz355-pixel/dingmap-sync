@@ -40,7 +40,7 @@ describe("dingmap export template", () => {
     expect(row["经度"]).toBe(121.5);
     expect(row["纬度"]).toBe(31.2);
     expect(row["备注"]).toBe("薪资说明");
-    expect(row["字段一"]).toBe("联系人：张三；电话：测试号码");
+    expect(row["字段一"]).toBe("张三 测试号码");
     expect(row["字段二"]).toBe("人工备注");
   });
 
@@ -89,8 +89,8 @@ describe("dingmap export template", () => {
       syncStatus: "pending",
     });
 
-    expect(contactOnly["字段一"]).toBe("联系人：李四");
-    expect(phoneOnly["字段一"]).toBe("电话：测试号码");
+    expect(contactOnly["字段一"]).toBe("李四");
+    expect(phoneOnly["字段一"]).toBe("测试号码");
     expect(blank["字段一"]).toBe("");
   });
 });

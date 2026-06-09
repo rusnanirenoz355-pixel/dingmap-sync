@@ -123,9 +123,30 @@ describe("clean marker management service", () => {
     expect(listManagedCleanMarkers({ source: "excel" }).rows[0]?.source).toBe("excel");
   });
 
-  it("derives missing coordinate, invalid coordinate, error, and duplicate anomalies", () => {
+  it("treats address-only rows as normal but flags rows without address or coordinates", () => {
+    seedMarker({
+      siteName: "Address Only",
+      address: "Address Only Road",
+      longitude: null,
+      latitude: null,
+    });
+    seedMarker({
+      siteName: "Missing Location",
+      address: "",
+      longitude: null,
+      latitude: null,
+    });
+
+    const rows = listManagedCleanMarkers({ pageSize: 20 }).rows;
+
+    expect(rows.find((row) => row.siteName === "Address Only")?.managementStatus).toBe("normal");
+    expect(rows.find((row) => row.siteName === "Missing Location")?.anomalyReasons).toContain(
+      "missing_coordinates",
+    );
+  });
+
+  it("derives invalid coordinate, error, and duplicate anomalies", () => {
     const duplicateKey = "site_address:duplicate:alpha-road";
-    seedMarker({ siteName: "Missing Coord", longitude: null });
     seedMarker({ siteName: "Invalid Coord", longitude: 181 });
     seedMarker({ siteName: "Error Site", errorMsg: "Synthetic error" });
     seedMarker({ siteName: "Duplicate One", mergeKey: duplicateKey });
@@ -134,7 +155,6 @@ describe("clean marker management service", () => {
     const rows = listManagedCleanMarkers({ anomalyOnly: true, pageSize: 20 }).rows;
     const reasons = rows.flatMap((row) => row.anomalyReasons);
 
-    expect(reasons).toContain("missing_coordinates");
     expect(reasons).toContain("invalid_coordinates");
     expect(reasons).toContain("has_error");
     expect(reasons).toContain("possible_duplicate");
