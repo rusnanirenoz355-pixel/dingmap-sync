@@ -21,6 +21,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { CleanMarker, ImportPreviewRow, ImportPreviewStatus } from "@dingmap-sync/shared";
+import { TruncatedText } from "./components/TruncatedText";
 
 const navItems = ["数据源", "Raw 数据", "Clean 数据", "同步计划", "导入", "日志", "设置"];
 
@@ -807,7 +808,7 @@ export default function DashboardPage() {
 
         <section className="grid min-w-0 gap-4 xl:grid-cols-2">
           <PlaceholderTable
-            columns={["来源", "标题", "地址", "解析状态", "抓取时间"]}
+            columns={["来源", "标题", "地址", "原始文本", "解析状态", "抓取时间"]}
             icon={Table2}
             title="Raw Table"
           />
@@ -967,30 +968,33 @@ function ImportPanel({
 }
 
 function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
+  const columns = [
+    { label: "行号", width: "w-16" },
+    { label: "来源", width: "w-28" },
+    { label: "站点名称", width: "w-44" },
+    { label: "地址", width: "w-64" },
+    { label: "联系人", width: "w-36" },
+    { label: "电话", width: "w-36" },
+    { label: "薪资", width: "w-48" },
+    { label: "福利", width: "w-48" },
+    { label: "备注", width: "w-52" },
+    { label: "原始文本", width: "w-56" },
+    { label: "状态", width: "w-28" },
+    { label: "错误 / 警告", width: "w-64" },
+  ];
+
   return (
     <section className="mt-4 min-w-0 overflow-hidden rounded-card border border-line bg-panel">
       <div className="border-b border-line px-4 py-3">
         <h2 className="text-base font-semibold">识别预览</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1420px] table-fixed border-collapse text-left text-sm">
           <thead className="bg-tableHead text-textSubtle">
             <tr>
-              {[
-                "行号",
-                "来源",
-                "站点名称",
-                "地址",
-                "联系人",
-                "电话",
-                "薪资",
-                "福利",
-                "备注",
-                "状态",
-                "错误 / 警告",
-              ].map((column) => (
-                <th key={column} className="px-4 py-3 font-medium">
-                  {column}
+              {columns.map((column) => (
+                <th key={column.label} className={`${column.width} px-4 py-3 font-medium`}>
+                  {column.label}
                 </th>
               ))}
             </tr>
@@ -998,28 +1002,68 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-5 text-textWeak" colSpan={11}>
+                <td className="px-4 py-5 text-textWeak" colSpan={columns.length}>
                   暂无预览
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={`${row.source}-${row.rowIndex}-${row.mergeKey ?? "none"}`} className="border-t border-line">
-                  <td className="px-4 py-3 text-textSubtle">{row.rowIndex}</td>
-                  <td className="px-4 py-3 text-textSubtle">{row.source}</td>
-                  <td className="px-4 py-3">{row.mapped.siteName || "-"}</td>
-                  <td className="px-4 py-3">{row.mapped.address || "-"}</td>
-                  <td className="px-4 py-3">{row.mapped.stationManager || "-"}</td>
-                  <td className="px-4 py-3">{row.mapped.phone || "-"}</td>
-                  <td className="px-4 py-3">{row.mapped.salary || "-"}</td>
-                  <td className="px-4 py-3">{row.mapped.welfare || "-"}</td>
-                  <td className="px-4 py-3">{row.mapped.remark || "-"}</td>
-                  <td className="px-4 py-3">
+                <tr
+                  key={`${row.source}-${row.rowIndex}-${row.mergeKey ?? "none"}`}
+                  className="h-20 border-t border-line align-top"
+                >
+                  <TableTextCell className="text-textSubtle" value={row.rowIndex} />
+                  <TableTextCell className="text-textSubtle" value={row.source} />
+                  <TableTextCell
+                    maxLength={48}
+                    popoverTitle="站点名称"
+                    value={row.mapped.siteName}
+                  />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={72}
+                    popoverTitle="地址"
+                    value={row.mapped.address}
+                  />
+                  <TableTextCell
+                    maxLength={48}
+                    popoverTitle="联系人"
+                    value={row.mapped.stationManager}
+                  />
+                  <TableTextCell maxLength={40} popoverTitle="电话" value={row.mapped.phone} />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={64}
+                    popoverTitle="薪资"
+                    value={row.mapped.salary}
+                  />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={64}
+                    popoverTitle="福利"
+                    value={row.mapped.welfare}
+                  />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={72}
+                    popoverTitle="备注"
+                    value={row.mapped.remark}
+                  />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={72}
+                    popoverTitle="原始文本"
+                    value={row.rawText}
+                  />
+                  <td className="h-20 max-w-0 overflow-hidden px-4 py-3 align-top">
                     <StatusBadge status={row.status} />
                   </td>
-                  <td className="px-4 py-3 text-textSubtle">
-                    {[...row.errors, ...row.warnings].join("；") || "-"}
-                  </td>
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={88}
+                    popoverTitle="错误 / 警告"
+                    value={[...row.errors, ...row.warnings].join("；")}
+                  />
                 </tr>
               ))
             )}
@@ -1044,35 +1088,81 @@ function CleanMarkerTable({
         <h2 className="text-base font-semibold">Clean Table</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1320px] table-fixed border-collapse text-left text-sm">
           <thead className="bg-tableHead text-textSubtle">
             <tr>
-              {["站点名称", "地址", "联系人", "电话", "同步动作", "同步状态", "更新时间"].map(
-                (column) => (
-                  <th key={column} className="px-4 py-3 font-medium">
-                    {column}
-                  </th>
-                ),
-              )}
+              {[
+                ["站点名称", "w-44"],
+                ["地址", "w-64"],
+                ["联系人", "w-36"],
+                ["电话", "w-36"],
+                ["薪资", "w-44"],
+                ["福利", "w-44"],
+                ["备注", "w-52"],
+                ["errorMsg", "w-52"],
+                ["同步动作", "w-28"],
+                ["同步状态", "w-28"],
+                ["更新时间", "w-40"],
+              ].map(([column, width]) => (
+                <th key={column} className={`${width} px-4 py-3 font-medium`}>
+                  {column}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {cleanMarkers.length === 0 ? (
               <tr>
-                <td className="px-4 py-5 text-textWeak" colSpan={7}>
+                <td className="px-4 py-5 text-textWeak" colSpan={11}>
                   {loading ? "读取中" : "暂无数据"}
                 </td>
               </tr>
             ) : (
               cleanMarkers.map((marker) => (
-                <tr key={marker.id ?? marker.mergeKey ?? marker.siteName} className="border-t border-line">
-                  <td className="px-4 py-3">{marker.siteName || "-"}</td>
-                  <td className="px-4 py-3">{marker.address || "-"}</td>
-                  <td className="px-4 py-3">{marker.stationManager || "-"}</td>
-                  <td className="px-4 py-3">{marker.phone || "-"}</td>
-                  <td className="px-4 py-3">{marker.syncAction}</td>
-                  <td className="px-4 py-3">{marker.syncStatus}</td>
-                  <td className="px-4 py-3 text-textSubtle">{marker.updatedAt || "-"}</td>
+                <tr
+                  key={marker.id ?? marker.mergeKey ?? marker.siteName}
+                  className="h-20 border-t border-line align-top"
+                >
+                  <TableTextCell maxLength={48} popoverTitle="站点名称" value={marker.siteName} />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={72}
+                    popoverTitle="地址"
+                    value={marker.address}
+                  />
+                  <TableTextCell
+                    maxLength={48}
+                    popoverTitle="联系人"
+                    value={marker.stationManager}
+                  />
+                  <TableTextCell maxLength={40} popoverTitle="电话" value={marker.phone} />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={64}
+                    popoverTitle="薪资"
+                    value={marker.salary}
+                  />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={64}
+                    popoverTitle="福利"
+                    value={marker.welfare}
+                  />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={72}
+                    popoverTitle="备注"
+                    value={marker.remark}
+                  />
+                  <TableTextCell
+                    className="text-textSubtle"
+                    maxLength={72}
+                    popoverTitle="errorMsg"
+                    value={marker.errorMsg}
+                  />
+                  <TableTextCell value={marker.syncAction} />
+                  <TableTextCell value={marker.syncStatus} />
+                  <TableTextCell className="text-textSubtle" value={marker.updatedAt} />
                 </tr>
               ))
             )}
@@ -1099,7 +1189,7 @@ function PlaceholderTable({
         <h2 className="text-base font-semibold">{title}</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[680px] table-fixed border-collapse text-left text-sm">
           <thead className="bg-tableHead text-textSubtle">
             <tr>
               {columns.map((column) => (
@@ -1110,15 +1200,38 @@ function PlaceholderTable({
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td className="px-4 py-5 text-textWeak" colSpan={columns.length}>
-                暂无数据
+            <tr className="h-16">
+              <td className="max-w-0 overflow-hidden px-4 py-5 text-textWeak" colSpan={columns.length}>
+                <TruncatedText className="text-textWeak" value="暂无数据" />
               </td>
             </tr>
           </tbody>
         </table>
       </div>
     </section>
+  );
+}
+
+function TableTextCell({
+  className = "",
+  maxLength = 56,
+  popoverTitle,
+  value,
+}: {
+  className?: string;
+  maxLength?: number;
+  popoverTitle?: string;
+  value?: unknown;
+}) {
+  return (
+    <td className="h-20 max-w-0 overflow-hidden px-4 py-3 align-top">
+      <TruncatedText
+        className={className}
+        maxLength={maxLength}
+        popoverTitle={popoverTitle}
+        value={value === null || value === undefined ? "" : String(value)}
+      />
+    </td>
   );
 }
 

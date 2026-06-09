@@ -289,10 +289,10 @@ export default function DataManagementPage() {
                 ) : (
                   data?.rows.map((marker) => (
                     <tr key={marker.id} className="h-20 border-t border-line align-top">
-                      <td className="px-4 py-3 font-medium">
+                      <td className="max-w-0 overflow-hidden px-4 py-3 font-medium">
                         <TruncatedText maxLength={48} value={marker.siteName} />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="max-w-0 overflow-hidden px-4 py-3">
                         <TruncatedText
                           className="text-textSubtle"
                           maxLength={72}
@@ -303,8 +303,12 @@ export default function DataManagementPage() {
                       <td className="px-4 py-3 text-textSubtle">
                         {formatCoordinate(marker.longitude, marker.latitude)}
                       </td>
-                      <td className="px-4 py-3 text-textSubtle">{marker.source}</td>
-                      <td className="px-4 py-3 text-textSubtle">{marker.originType}</td>
+                      <td className="max-w-0 overflow-hidden px-4 py-3 text-textSubtle">
+                        <TruncatedText lineClamp={1} maxLength={40} value={marker.source} />
+                      </td>
+                      <td className="max-w-0 overflow-hidden px-4 py-3 text-textSubtle">
+                        <TruncatedText lineClamp={1} maxLength={40} value={marker.originType} />
+                      </td>
                       <td className="px-4 py-3">
                         <span
                           className={`whitespace-nowrap rounded-md border px-2 py-1 text-xs ${statusClasses[marker.managementStatus]}`}
@@ -312,7 +316,7 @@ export default function DataManagementPage() {
                           {statusLabels[marker.managementStatus]}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-textSubtle">
+                      <td className="max-w-0 overflow-hidden px-4 py-3 text-textSubtle">
                         <TruncatedText
                           maxLength={72}
                           onExpand={() => setSelectedMarker(marker)}
