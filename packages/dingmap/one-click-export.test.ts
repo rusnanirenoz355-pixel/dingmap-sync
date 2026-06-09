@@ -34,19 +34,22 @@ describe("dingmap one click export", () => {
     expect(worksheet?.getRow(2).getCell(6).value).toBe("张三 测试号码");
   });
 
-  it("generates timestamped xlsx filenames", () => {
-    expect(buildDingmapExportFilename(new Date("2026-06-08T09:30:00+08:00"))).toMatch(
-      /^dingmap-import-\d{8}-\d{6}\.xlsx$/,
-    );
+  it("generates short Chinese xlsx filenames", () => {
+    expect(
+      buildDingmapExportFilename(new Date("2026-06-09T17:31:00+08:00"), {
+        platformLabel: "美团点",
+        exportName: "苏州黑闸",
+      }),
+    ).toBe("美团点-苏州黑闸-6.9-17.31.xlsx");
   });
 
-  it("generates readable export filenames with platform and custom name", () => {
+  it("uses unnamed when the custom export name is blank", () => {
     expect(
-      buildDingmapExportFilename(new Date("2026-06-09T14:25:30+08:00"), {
+      buildDingmapExportFilename(new Date("2026-06-09T17:31:00+08:00"), {
         platformLabel: "美团点",
-        exportName: "余杭区第一批",
+        exportName: "  ",
       }),
-    ).toBe("dingmap-import-美团点-余杭区第一批-20260609-142530.xlsx");
+    ).toBe("美团点-未命名-6.9-17.31.xlsx");
   });
 
   it("sanitizes unsafe export filename segments", () => {
@@ -55,16 +58,7 @@ describe("dingmap one click export", () => {
         platformLabel: "美团点",
         exportName: '..\\余杭/第一批:*?"<>|  测试',
       }),
-    ).toBe("dingmap-import-美团点-余杭-第一批-测试-20260609-142530.xlsx");
-  });
-
-  it("keeps export possible when custom name is blank", () => {
-    expect(
-      buildDingmapExportFilename(new Date("2026-06-09T14:25:30+08:00"), {
-        platformLabel: "面试点",
-        exportName: "  ",
-      }),
-    ).toBe("dingmap-import-面试点-20260609-142530.xlsx");
+    ).toBe("美团点-余杭-第一批-测试-6.9-14.25.xlsx");
   });
 });
 

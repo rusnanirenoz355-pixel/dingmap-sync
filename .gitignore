@@ -10,6 +10,7 @@ data/*.sqlite
 data/*.sqlite3
 data/screenshots/
 data/browser-profile/
+data/debug/
 data/uploads/
 data/exports/
 data/temp/

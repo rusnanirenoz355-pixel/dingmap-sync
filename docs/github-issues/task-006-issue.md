@@ -235,3 +235,49 @@ Done:
 
 * 钉图外部页面 DOM 仍可能变化，后续可按需要补本地 inspector/debug 脚本。
 * 真实上传仍可能遇到登录、验证码、人机验证或权限阻塞。
+
+## Task 006-F Done 草稿：自动化浏览器统一与人工辅助定位
+
+Done:
+
+* 已将新导出文件名改为 `平台-导出名称-M.D-HH.mm.xlsx`。
+* 导出名称为空时使用 `未命名`，例如 `美团点-未命名-6.9-17.31.xlsx`。
+* 文件名继续清理 Windows 非法字符。
+* 旧 `dingmap-import-...` 文件名继续兼容最近导出、下载和上传选择。
+* “打开钉图”已改为调用 `/api/dingmap/open`，不再走普通默认浏览器链接。
+* 自动化浏览器统一使用 `data/browser-profile/dingmap/`，优先 `channel: "chrome"`。
+* 自动化 Chrome 中已有 `dm.dingmap.com` page 时优先复用。
+* 新增 `manual_assist` 状态和人工辅助步骤流。
+* Dashboard 上传入口默认进入人工辅助流程，不再继续盲猜钉图元素。
+* 人工辅助步骤会在关键点暂停：确认登录/地图、找图层、点图层“更多”、点“数据导入”、确认新增数据、确认样式、选择文件、点导入、读结果。
+* 用户在自动化 Chrome 操作完后，点击 Dashboard “继续上传”，系统读取页面结构再进入下一步。
+* 每次继续会保存截图到 `data/screenshots/dingmap-upload/`，DOM/候选元素摘要到 `data/debug/dingmap-upload/`。
+* 已将 `data/debug/` 加入 `.gitignore`。
+* success / failed / blocked / timeout / unknown 路径不再自动关闭自动化浏览器。
+* Dashboard stage 改为中文映射，长文件名截断显示。
+* 仍保留 2000 行限制、平台颜色映射、中文下载、模板字段映射和 unknown 不伪造 success。
+* 未做真实钉图重复提交。
+
+新增 / 更新测试：
+
+* `packages/browser-controller/dingmap-assisted-locator.test.ts`
+* `packages/browser-controller/dingmap-upload-safety.test.ts`
+* `apps/dashboard/app/dashboard-dingmap-upload-ui.test.ts`
+* `packages/dingmap/one-click-export.test.ts`
+* `packages/db/dingmap-export.test.ts`
+
+验证命令：
+
+* `corepack pnpm run check`
+* `corepack pnpm run lint`
+* `corepack pnpm run test`
+
+测试结果：
+
+* 26 个测试文件、102 个测试通过。
+
+剩余风险：
+
+* 人工辅助模式会采集真实页面 DOM 摘要，但只保存到 ignored 本地目录。
+* 如果公司电脑没有安装 Chrome channel，自动化 Chrome 打开会失败，需要安装 Chrome 或后续增加 fallback。
+* 真实上传仍可能遇到登录、验证码、人机验证或权限阻塞；本任务不绕过这些限制。

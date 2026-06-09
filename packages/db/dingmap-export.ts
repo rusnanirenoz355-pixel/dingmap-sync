@@ -131,7 +131,9 @@ export function filterExportableMarkers(markers: CleanMarker[]): CleanMarker[] {
 }
 
 export function isSafeDingmapExportFilename(filename: string): boolean {
-  return /^dingmap-import-(?:[^\\/:*?"<>|\r\n]+-)?\d{8}-\d{6}\.xlsx$/.test(filename);
+  const legacyPattern = /^dingmap-import-(?:[^\\/:*?"<>|\r\n]+-)?\d{8}-\d{6}\.xlsx$/;
+  const shortChinesePattern = /^[^\\/:*?"<>|\r\n]+-\d{1,2}\.\d{1,2}-\d{2}\.\d{2}\.xlsx$/;
+  return legacyPattern.test(filename) || shortChinesePattern.test(filename);
 }
 
 export function resolveDingmapExportFilePath(

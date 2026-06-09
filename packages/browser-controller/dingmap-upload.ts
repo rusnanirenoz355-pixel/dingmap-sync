@@ -1,6 +1,12 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+import {
+  buildAssistedUploadPrompt,
+  getNextAssistedUploadStep,
+  type DingmapAssistSnapshot,
+  type DingmapAssistedUploadStep,
+} from "./dingmap-assisted-locator";
 import {
   DINGMAP_HOME_URL,
   DINGMAP_TARGET_MAP_NAME,
@@ -29,6 +35,7 @@ export type DingmapUploadStatus =
   | "pending"
   | "opening_dingmap"
   | "requires_login"
+  | "manual_assist"
   | "uploading"
   | "confirming"
   | "success"
@@ -40,7 +47,6 @@ export type DingmapUploadStatus =
 export interface DingmapUploadBrowserSession {
   context: BrowserContext;
   page: Page;
-  close: () => Promise<void>;
 }
 
 export interface DingmapUploadBrowserOptions {
@@ -49,6 +55,9 @@ export interface DingmapUploadBrowserOptions {
   screenshotsDir: string;
   mapUrl?: string;
   platform?: DingmapPlatformKey;
+  manualAssist?: boolean;
+  assistStep?: DingmapAssistedUploadStep;
+  debugDir?: string;
   timeoutMs?: number;
   session?: DingmapUploadBrowserSession;
   onStatus?: (status: DingmapUploadStatus, message: string) => void;
@@ -61,6 +70,9 @@ export interface DingmapUploadBrowserResult {
   submitted?: boolean;
   session?: DingmapUploadBrowserSession;
   stage?: string;
+  assistStep?: DingmapAssistedUploadStep;
+  assistPrompt?: string;
+  assistSnapshot?: DingmapAssistSnapshot;
 }
 
 type SelectorGroup = readonly string[];
@@ -79,15 +91,16 @@ export async function runDingmapUploadBrowser(
   const session = options.session ?? (await openDingmapUploadSession(options.profileDir));
 
   try {
+    if (options.manualAssist) {
+      return runManualAssistedUploadBrowser(options, session, platform, startedAt, timeoutMs);
+    }
+
     updateStatus(options, "opening_dingmap", `正在打开钉图地图列表，目标平台：${platform.label}。`);
     await session.page.goto(entryUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     await waitForPageSettled(session.page);
 
     const initialBlock = await detectLoginOrCaptcha(session.page, options.screenshotsDir);
     if (initialBlock) {
-      if (initialBlock.status !== "requires_login") {
-        await session.close();
-      }
       return initialBlock.status === "requires_login" ? { ...initialBlock, session } : initialBlock;
     }
 
@@ -98,14 +111,11 @@ export async function runDingmapUploadBrowser(
       timeoutMs,
     );
     if (targetMapOpened) {
-      return closeAndReturn(session, targetMapOpened);
+      return { ...targetMapOpened, session };
     }
 
     const mapBlock = await detectLoginOrCaptcha(session.page, options.screenshotsDir);
     if (mapBlock) {
-      if (mapBlock.status !== "requires_login") {
-        await session.close();
-      }
       return mapBlock.status === "requires_login" ? { ...mapBlock, session } : mapBlock;
     }
 
@@ -117,7 +127,7 @@ export async function runDingmapUploadBrowser(
       platform,
     );
     if (importDialogOpened) {
-      return closeAndReturn(session, importDialogOpened);
+      return { ...importDialogOpened, session };
     }
 
     const uploadReady = await prepareAddDataUploadDialog(
@@ -126,7 +136,7 @@ export async function runDingmapUploadBrowser(
       platform,
     );
     if (uploadReady) {
-      return closeAndReturn(session, uploadReady);
+      return { ...uploadReady, session };
     }
 
     updateStatus(options, "uploading", "正在上传钉图模板 Excel。");
@@ -137,16 +147,14 @@ export async function runDingmapUploadBrowser(
       timeoutMs,
     );
     if (!uploaded) {
-      return closeAndReturn(
-        session,
-        await stageResult(
-          session.page,
-          options.screenshotsDir,
-          "upload-input",
-          "blocked",
-          "未确认钉图页面已选择当前 Excel 文件，已停止点击“导入”。",
-        ),
+      const result = await stageResult(
+        session.page,
+        options.screenshotsDir,
+        "upload-input",
+        "blocked",
+        "未确认钉图页面已选择当前 Excel 文件，已停止点击“导入”。",
       );
+      return { ...result, session };
     }
 
     updateStatus(options, "confirming", "已选择导入文件，正在点击右下角“导入”。");
@@ -155,16 +163,14 @@ export async function runDingmapUploadBrowser(
       dingmapSelectors.confirmButtons,
     );
     if (!confirmed) {
-      return closeAndReturn(
-        session,
-        await stageResult(
-          session.page,
-          options.screenshotsDir,
-          "import-confirm",
-          "blocked",
-          "已选择导入文件，但未找到可点击的右下角“导入”按钮。",
-        ),
+      const result = await stageResult(
+        session.page,
+        options.screenshotsDir,
+        "import-confirm",
+        "blocked",
+        "已选择导入文件，但未找到可点击的右下角“导入”按钮。",
       );
+      return { ...result, session };
     }
 
     const result = await waitForUploadResult(session.page, startedAt, timeoutMs);
@@ -180,11 +186,11 @@ export async function runDingmapUploadBrowser(
     };
   } catch (error) {
     const screenshotPath = await saveStageScreenshot(session.page, options.screenshotsDir, "error");
-    await session.close();
     return {
       status: Date.now() - startedAt >= timeoutMs ? "timeout" : "failed",
       message: error instanceof Error ? error.message : String(error),
       screenshotPath,
+      session,
     };
   }
 }
@@ -395,20 +401,111 @@ async function uploadExportFile(
   return waitForSelectedExportFile(page, filename);
 }
 
-async function openDingmapUploadSession(profileDir: string): Promise<DingmapUploadBrowserSession> {
+async function runManualAssistedUploadBrowser(
+  options: DingmapUploadBrowserOptions,
+  session: DingmapUploadBrowserSession,
+  platform: DingmapPlatformConfig,
+  startedAt: number,
+  timeoutMs: number,
+): Promise<DingmapUploadBrowserResult> {
+  if (!options.assistStep) {
+    updateStatus(options, "manual_assist", "请在自动化 Chrome 中确认钉图登录和目标地图。");
+    await session.page.goto(options.mapUrl ?? DINGMAP_HOME_URL, {
+      waitUntil: "domcontentloaded",
+      timeout: timeoutMs,
+    });
+    await waitForPageSettled(session.page);
+    return buildManualAssistResult(session, platform, "confirm-login-map");
+  }
+
+  const completedStep = options.assistStep;
+  const assistSnapshot = await captureAssistSnapshot(
+    session.page,
+    options.screenshotsDir,
+    options.debugDir,
+    completedStep,
+  );
+
+  if (completedStep === "upload-file") {
+    const uploaded = await uploadExportFile(
+      session.page,
+      options.exportFilePath,
+      startedAt,
+      timeoutMs,
+    );
+    if (!uploaded) {
+      return buildManualAssistResult(
+        session,
+        platform,
+        "upload-file",
+        assistSnapshot,
+        "未能自动确认文件已选择。请在钉图弹窗中手动选择当前 Excel，完成后点击继续。",
+      );
+    }
+  }
+
+  if (completedStep === "wait-result") {
+    const result = await waitForUploadResult(session.page, startedAt, timeoutMs);
+    return {
+      ...result,
+      session,
+      assistSnapshot,
+      stage: result.stage ?? completedStep,
+    };
+  }
+
+  const nextStep = getNextAssistedUploadStep(completedStep);
+  if (!nextStep) {
+    return {
+      status: "unknown",
+      message: "人工辅助流程已结束，但未读取到可靠的钉图成功或失败提示，需要人工确认。",
+      session,
+      stage: completedStep,
+      assistSnapshot,
+    };
+  }
+
+  return buildManualAssistResult(session, platform, nextStep, assistSnapshot);
+}
+
+function buildManualAssistResult(
+  session: DingmapUploadBrowserSession,
+  platform: DingmapPlatformConfig,
+  step: DingmapAssistedUploadStep,
+  assistSnapshot?: DingmapAssistSnapshot,
+  overridePrompt?: string,
+): DingmapUploadBrowserResult {
+  const assistPrompt =
+    overridePrompt ??
+    buildAssistedUploadPrompt(step, {
+      platformLabel: platform.label,
+      layerName: platform.layerName,
+      markerColorLabel: platform.markerColorLabel,
+    });
+  return {
+    status: "manual_assist",
+    message: assistPrompt,
+    session,
+    stage: step,
+    assistStep: step,
+    assistPrompt,
+    assistSnapshot,
+    screenshotPath: assistSnapshot?.screenshotPath,
+  };
+}
+
+export async function openDingmapUploadSession(profileDir: string): Promise<DingmapUploadBrowserSession> {
   mkdirSync(profileDir, { recursive: true });
   const context = await chromium.launchPersistentContext(profileDir, {
+    channel: "chrome",
     headless: false,
     viewport: { width: 1365, height: 900 },
   });
-  const page = context.pages()[0] ?? (await context.newPage());
-  return {
-    context,
-    page,
-    close: async () => {
-      await context.close();
-    },
-  };
+  const page =
+    context.pages().find((candidate) => candidate.url().includes("dm.dingmap.com")) ??
+    context.pages()[0] ??
+    (await context.newPage());
+  return { context, page };
 }
 
 async function detectLoginOrCaptcha(
@@ -596,14 +693,6 @@ async function stageResult(
   };
 }
 
-async function closeAndReturn(
-  session: DingmapUploadBrowserSession,
-  result: DingmapUploadBrowserResult,
-): Promise<DingmapUploadBrowserResult> {
-  await session.close();
-  return result;
-}
-
 async function saveStageScreenshot(
   page: Page,
   screenshotsDir: string,
@@ -614,6 +703,67 @@ async function saveStageScreenshot(
   const screenshotPath = join(screenshotsDir, `${timestamp}-${stage}.png`);
   await page.screenshot({ path: screenshotPath, fullPage: true });
   return screenshotPath;
+}
+
+async function captureAssistSnapshot(
+  page: Page,
+  screenshotsDir: string,
+  debugDir: string | undefined,
+  step: DingmapAssistedUploadStep,
+): Promise<DingmapAssistSnapshot> {
+  const screenshotPath = await saveStageScreenshot(page, screenshotsDir, `assist-${step}`);
+  const snapshot: DingmapAssistSnapshot = {
+    step,
+    url: page.url(),
+    title: await page.title().catch(() => ""),
+    screenshotPath,
+  };
+
+  if (debugDir) {
+    mkdirSync(debugDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, "");
+    const debugPath = join(debugDir, `${timestamp}-${step}.json`);
+    const elements = await page
+      .locator("body")
+      .evaluate(() => {
+        const candidates = Array.from(
+          document.querySelectorAll(
+            "button,[role='button'],[role='menuitem'],a,input,select,[aria-label],[title]",
+          ),
+        );
+        return candidates.slice(0, 120).map((element) => {
+          const htmlElement = element as HTMLElement;
+          const input = element as HTMLInputElement;
+          return {
+            tag: element.tagName.toLowerCase(),
+            text: htmlElement.innerText?.trim().slice(0, 120) ?? "",
+            ariaLabel: element.getAttribute("aria-label") ?? "",
+            title: element.getAttribute("title") ?? "",
+            role: element.getAttribute("role") ?? "",
+            placeholder: element.getAttribute("placeholder") ?? "",
+            type: input.type ?? "",
+          };
+        });
+      })
+      .catch(() => []);
+    writeFileSync(
+      debugPath,
+      JSON.stringify(
+        {
+          step,
+          url: snapshot.url,
+          title: snapshot.title,
+          elements,
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    snapshot.debugPath = debugPath;
+  }
+
+  return snapshot;
 }
 
 async function waitForPageSettled(page: Page): Promise<void> {

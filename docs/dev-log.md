@@ -843,3 +843,43 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 * 钉图真实页面 DOM 仍可能变化；当前策略是 scoped 文本锚点 + 滚动，失败时返回 `blocked` 并保留 stage。
 * 本轮未新增 debug / inspector 脚本；如后续真实页面仍变动，可补本地定位脚本。
 * 未做真实钉图重复提交，避免误写线上数据。
+
+## 任务卡 006-F：自动化 Chrome 统一与人工辅助定位
+
+### 当前状态
+
+已按验收反馈新增人工辅助定位模式。Dashboard 上传入口默认进入人工辅助流程，每个关键步骤暂停并提示用户在自动化 Chrome 中手动点击；点击完成后再点 Dashboard “继续上传”，系统读取当前页面结构、DOM 摘要、候选元素和截图，再推进下一步。
+
+### 修复内容
+
+* 文件命名改为短中文格式：`平台-导出名称-M.D-HH.mm.xlsx`，空导出名使用“未命名”。
+* 旧 `dingmap-import-...` 文件名继续兼容下载、最近导出列表和上传选择。
+* “打开钉图”不再使用普通外链，改为调用 `/api/dingmap/open`，统一打开自动化 Chrome。
+* Playwright 持久化浏览器优先使用 `channel: "chrome"`，profile 仍为 `data/browser-profile/dingmap/`。
+* 自动化浏览器不再在 success / failed / blocked / timeout / unknown 路径自动关闭。
+* 新增 `manual_assist` 暂停态，继续接口支持 `requires_login` 和 `manual_assist`。
+* 人工辅助步骤：确认登录和地图、查找图层、点击图层“更多”、点击“数据导入”、确认“新增数据”、确认坐标和样式、选择文件、点击导入、读取结果。
+* 每次继续后保存截图到 `data/screenshots/dingmap-upload/`，DOM/候选元素摘要到 `data/debug/dingmap-upload/`，两个目录均不进 Git。
+* Dashboard 状态阶段改为中文映射，不再直接展示英文 stage；长文件名截断并保留 title。
+
+### 新增 / 更新测试
+
+* `packages/browser-controller/dingmap-assisted-locator.test.ts`
+* `packages/browser-controller/dingmap-upload-safety.test.ts`
+* `apps/dashboard/app/dashboard-dingmap-upload-ui.test.ts`
+* `packages/dingmap/one-click-export.test.ts`
+* `packages/db/dingmap-export.test.ts`
+
+### 命令验证
+
+| 命令 | 状态 | 备注 |
+| --- | --- | --- |
+| `corepack pnpm run check` | 成功 | TypeScript 检查通过 |
+| `corepack pnpm run lint` | 成功 | ESLint 通过 |
+| `corepack pnpm run test` | 成功 | 26 个测试文件、102 个测试通过 |
+
+### 当前风险
+
+* 人工辅助模式会读取真实页面 DOM 摘要用于定位，但只写入 ignored 的本地 `data/debug/dingmap-upload/`。
+* 本轮未做真实钉图导入提交；最后“导入”点击仍由用户在自动化 Chrome 中手动完成。
+* 若系统未安装 Chrome channel，打开自动化 Chrome 时会报错，需要本机安装 Chrome 或后续增加 fallback。

@@ -302,3 +302,68 @@ https://dm.dingmap.com/home/map?id=c7b3a5c524864c698416c093843c34c6
 15. 是否不扩展模板新列：是。
 16. 是否不破坏 2000 行限制、平台颜色和 unknown：是。
 17. 是否未提交真实 Excel、截图、DB、cookie、token、登录态：是。
+
+## 006-F 追加：自动化浏览器统一与人工辅助定位
+
+### 修复范围
+
+* 文件名改为 `平台-导出名称-M.D-HH.mm.xlsx`，例如 `美团点-苏州黑闸-6.9-17.31.xlsx`。
+* 导出名称为空时使用 `未命名`。
+* 文件名继续清理 Windows 非法字符，文件仍只写入 `data/exports/`。
+* 旧 `dingmap-import-...` 文件名继续可显示、下载和上传。
+* “打开钉图”改为调用 `/api/dingmap/open`，不再走普通 `<a>` 默认浏览器。
+* 自动化浏览器使用同一持久化 profile：`data/browser-profile/dingmap/`，并优先 `channel: "chrome"`。
+* Dashboard 上传入口默认进入人工辅助模式，不再继续盲猜钉图元素。
+* 新增 `manual_assist` 状态：每个关键步骤暂停，等待用户在自动化 Chrome 中点击，再点 Dashboard “继续上传”。
+* 每次继续后读取当前页面 URL、标题、候选元素摘要，并保存截图和 DOM 摘要到 ignored 本地目录。
+* 不在 success / failed / blocked / timeout / unknown 路径自动关闭浏览器。
+* Dashboard stage 改中文映射，长文件名截断显示。
+
+### 人工辅助步骤
+
+1. 确认登录和进入目标地图“面试点”。
+2. 找到当前平台图层。
+3. 点击目标图层内部“更多”。
+4. 点击菜单“数据导入”。
+5. 确认“新增数据”页。
+6. 确认坐标类型、标记样式、标记大小。
+7. 选择 / 确认当前导出 Excel。
+8. 用户点击“导入”。
+9. 系统读取结果；无可靠提示时返回 unknown。
+
+### 006-F 测试
+
+* `packages/browser-controller/dingmap-assisted-locator.test.ts`
+* `packages/browser-controller/dingmap-upload-safety.test.ts`
+* `apps/dashboard/app/dashboard-dingmap-upload-ui.test.ts`
+* `packages/dingmap/one-click-export.test.ts`
+* `packages/db/dingmap-export.test.ts`
+
+### 006-F 验证
+
+* `corepack pnpm run check`：通过。
+* `corepack pnpm run lint`：通过。
+* `corepack pnpm run test`：通过，26 个测试文件、102 个测试。
+
+### 006-F 自查
+
+1. 是否文件名为 `平台-导出名称-M.D-HH.mm.xlsx`：是。
+2. 是否没有 `dingmap-import-` 新前缀：是，新导出不再使用。
+3. 是否无导出名称时使用“未命名”：是。
+4. 是否 Dashboard 不再直接显示英文 stage：是。
+5. 是否长文件名截断：是。
+6. 是否“打开钉图”不再走默认浏览器：是。
+7. 是否“打开钉图”和上传统一自动化 Chrome：是。
+8. 是否复用已有自动化 Chrome page：是，优先复用 store 中 session / dm.dingmap.com page。
+9. 是否新增人工辅助模式：是。
+10. 是否每一步暂停等待用户操作：是。
+11. 是否用户点继续后进入下一步：是。
+12. 是否记录 DOM / 菜单文本候选元素摘要：是，保存到 ignored debug 目录。
+13. 是否不依赖截图坐标：是。
+14. 是否仍保留 scoped locator 自动模式代码：是，供后续固化。
+15. 是否文件上传仍校验当前文件：是。
+16. 是否没有成功提示时返回 unknown：是。
+17. 是否不自动关闭浏览器：是。
+18. 是否不破坏平台颜色和 2000 行限制：是。
+19. 是否不破坏中文下载和字段映射：是。
+20. 是否不提交敏感文件：是。

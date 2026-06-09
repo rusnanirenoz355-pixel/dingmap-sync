@@ -89,6 +89,7 @@ type DingmapUploadStatus =
   | "pending"
   | "opening_dingmap"
   | "requires_login"
+  | "manual_assist"
   | "uploading"
   | "confirming"
   | "success"
@@ -109,6 +110,15 @@ interface DingmapUploadJob {
   coordinateType: string;
   message: string;
   stage?: string;
+  assistStep?: string;
+  assistPrompt?: string;
+  assistSnapshot?: {
+    step: string;
+    url: string;
+    title: string;
+    screenshotPath?: string;
+    debugPath?: string;
+  };
   dataRows?: number;
   maxRows?: number;
   startedAt: string;
@@ -174,6 +184,7 @@ const uploadStatusLabels: Record<DingmapUploadStatus, string> = {
   pending: "等待上传",
   opening_dingmap: "正在打开钉图",
   requires_login: "需要手动登录",
+  manual_assist: "等待人工辅助",
   uploading: "正在上传文件",
   confirming: "正在确认导入",
   success: "上传成功",
@@ -183,9 +194,33 @@ const uploadStatusLabels: Record<DingmapUploadStatus, string> = {
   unknown: "已提交，结果待人工确认",
 };
 
+const uploadStageLabels: Record<string, string> = {
+  "opening-dingmap": "正在打开钉图",
+  opening_dingmap: "正在打开钉图",
+  "confirm-login-map": "确认登录和地图",
+  "find-layer": "正在查找图层",
+  "open-layer-menu": "正在打开图层菜单",
+  "open-import-dialog": "正在打开数据导入",
+  "confirm-add-data-tab": "确认新增数据页",
+  "confirm-style": "确认坐标和标记样式",
+  "set-coordinate-type": "正在选择坐标类型",
+  "set-marker-style": "正在选择标记样式",
+  "set-marker-size": "正在选择标记大小",
+  "upload-file": "正在选择导入文件",
+  "confirm-file": "正在确认文件",
+  "click-import": "正在点击导入",
+  "wait-result": "等待钉图返回结果",
+  success: "导入成功",
+  unknown: "已提交，等待人工确认",
+  failed: "导入失败",
+  blocked: "自动化受阻",
+  manual_assist: "等待人工辅助",
+};
+
 const uploadActiveStatuses = new Set<DingmapUploadStatus>([
   "pending",
   "opening_dingmap",
+  "manual_assist",
   "uploading",
   "confirming",
 ]);
@@ -514,6 +549,14 @@ export default function DashboardPage() {
   }
 
   async function handleDingmapUpload() {
+    await startDingmapUpload(true);
+  }
+
+  async function handleDingmapManualAssist() {
+    await startDingmapUpload(true);
+  }
+
+  async function startDingmapUpload(manualAssist: boolean) {
     setUploadErrorMsg(null);
     setLoading("upload");
     try {
@@ -523,6 +566,7 @@ export default function DashboardPage() {
         body: JSON.stringify({
           filename: selectedUploadFilename || undefined,
           platform: selectedUploadPlatform,
+          manualAssist,
         }),
       });
       const data = (await response.json()) as { job?: DingmapUploadJob; error?: string };
@@ -534,6 +578,25 @@ export default function DashboardPage() {
       await loadUploadStatus(data.job.filename);
     } catch (error) {
       setUploadErrorMsg(error instanceof Error ? error.message : "创建钉图上传任务失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleDingmapOpen() {
+    setUploadErrorMsg(null);
+    setLoading("upload");
+    try {
+      const response = await fetch("/api/dingmap/open", {
+        method: "POST",
+      });
+      const data = (await response.json()) as { message?: string; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "打开自动化 Chrome 失败。");
+      }
+      await loadUploadStatus();
+    } catch (error) {
+      setUploadErrorMsg(error instanceof Error ? error.message : "打开自动化 Chrome 失败。");
     } finally {
       setLoading(null);
     }
@@ -829,19 +892,19 @@ export default function DashboardPage() {
                   )}
                 </select>
               </label>
-              <a
+              <button
                 className="inline-flex h-10 items-center justify-center gap-2 self-end rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead"
-                href="https://dm.dingmap.com/home"
-                rel="noreferrer"
-                target="_blank"
+                disabled={loading === "upload"}
+                onClick={handleDingmapOpen}
+                type="button"
               >
                 <ExternalLink aria-hidden="true" className="h-4 w-4" />
                 <span>打开钉图</span>
-              </a>
+              </button>
             </div>
 
             <div className="flex flex-wrap items-end gap-2 lg:justify-end">
-              {uploadJob?.status === "requires_login" ? (
+              {uploadJob?.status === "requires_login" || uploadJob?.status === "manual_assist" ? (
                 <button
                   className="inline-flex h-10 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
                   disabled={loading === "upload"}
@@ -856,6 +919,23 @@ export default function DashboardPage() {
                   <span>继续上传</span>
                 </button>
               ) : null}
+              <button
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={
+                  loading === "upload" ||
+                  recentExports.length === 0 ||
+                  Boolean(uploadJob && uploadActiveStatuses.has(uploadJob.status))
+                }
+                onClick={handleDingmapManualAssist}
+                type="button"
+              >
+                {loading === "upload" ? (
+                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Settings2 aria-hidden="true" className="h-4 w-4" />
+                )}
+                <span>人工辅助定位</span>
+              </button>
               <button
                 className="inline-flex h-10 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
                 disabled={
@@ -921,7 +1001,9 @@ function DingmapUploadStatusPanel({ job }: { job: DingmapUploadJob }) {
         >
           {uploadStatusLabels[job.status]}
         </span>
-        <span className="min-w-0 truncate text-textSubtle">{job.filename}</span>
+        <span className="min-w-0 truncate text-textSubtle" title={job.filename}>
+          {job.filename}
+        </span>
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <UploadStatusItem label="当前上传平台" value={job.platformLabel} />
@@ -929,7 +1011,7 @@ function DingmapUploadStatusPanel({ job }: { job: DingmapUploadJob }) {
         <UploadStatusItem label="当前标记样式" value={job.markerColorLabel} />
         <UploadStatusItem label="当前标记大小" value={job.markerSize} />
         <UploadStatusItem label="当前上传文件" value={job.filename} />
-        <UploadStatusItem label="当前阶段" value={job.stage ?? job.status} />
+        <UploadStatusItem label="当前阶段" value={formatUploadStage(job.stage ?? job.status)} />
         <UploadStatusItem label="坐标类型" value={job.coordinateType} />
         <UploadStatusItem
           label="数据行数"
@@ -941,11 +1023,21 @@ function DingmapUploadStatusPanel({ job }: { job: DingmapUploadJob }) {
         />
       </div>
       <p className="mt-3 text-textSubtle">{job.message}</p>
+      {job.status === "manual_assist" ? (
+        <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          {job.assistPrompt ?? job.message}
+        </div>
+      ) : null}
       {job.status === "failed" || job.status === "blocked" || job.status === "timeout" ? (
-        <p className="mt-2 text-red-700">失败原因：{job.message}</p>
+        <p className="mt-2 line-clamp-2 text-red-700" title={job.message}>
+          失败原因：{job.message}
+        </p>
       ) : null}
       {job.screenshotPath ? (
         <p className="mt-2 break-all text-textWeak">截图：{job.screenshotPath}</p>
+      ) : null}
+      {job.assistSnapshot?.debugPath ? (
+        <p className="mt-2 break-all text-textWeak">DOM 摘要：{job.assistSnapshot.debugPath}</p>
       ) : null}
     </div>
   );
@@ -955,9 +1047,19 @@ function UploadStatusItem({ label, value }: { label: string; value?: string | nu
   return (
     <div className="min-w-0 rounded-md border border-line bg-white px-3 py-2">
       <div className="text-xs text-textWeak">{label}</div>
-      <div className="mt-1 truncate font-medium text-textMain">{value || "-"}</div>
+      <div className="mt-1 truncate font-medium text-textMain" title={String(value || "-")}>
+        {value || "-"}
+      </div>
     </div>
   );
+}
+
+function formatUploadStage(stage?: string): string {
+  if (!stage) {
+    return "-";
+  }
+
+  return uploadStageLabels[stage] ?? uploadStatusLabels[stage as DingmapUploadStatus] ?? stage;
 }
 
 function getUploadStatusClass(status: DingmapUploadStatus): string {
@@ -1361,10 +1463,13 @@ function ResultPill({
   value: number | string;
   tone: string;
 }) {
+  const displayValue = String(value);
   return (
-    <div className="rounded-md border border-line bg-tableHead px-3 py-2">
+    <div className="min-w-0 rounded-md border border-line bg-tableHead px-3 py-2">
       <span className="text-textSubtle">{label}</span>
-      <span className={`ml-2 font-semibold ${tone}`}>{value}</span>
+      <span className={`ml-2 inline-block max-w-full truncate align-bottom font-semibold ${tone}`} title={displayValue}>
+        {displayValue}
+      </span>
     </div>
   );
 }

@@ -192,7 +192,7 @@ describe("dingmap export database orchestration", () => {
 
     expect(result.exportedCount).toBe(1);
     expect(result.skippedCount).toBe(1);
-    expect(result.filename).toMatch(/^dingmap-import-\d{8}-\d{6}\.xlsx$/);
+    expect(result.filename).toBe("面试点-未命名-6.8-09.30.xlsx");
     expect(existsSync(result.filePath)).toBe(true);
 
     const database = new DatabaseSync(databasePath);
@@ -225,10 +225,13 @@ describe("dingmap export database orchestration", () => {
     expect(isSafeDingmapExportFilename("dingmap-import-美团点-余杭区第一批-20260609-142530.xlsx")).toBe(
       true,
     );
+    expect(isSafeDingmapExportFilename("美团点-苏州黑闸-6.9-17.31.xlsx")).toBe(true);
+    expect(isSafeDingmapExportFilename("美团点-未命名-6.9-17.31.xlsx")).toBe(true);
     expect(isSafeDingmapExportFilename("../dingmap-import-20260608-093000.xlsx")).toBe(false);
     expect(isSafeDingmapExportFilename("dingmap-import-美团点/余杭-20260609-142530.xlsx")).toBe(
       false,
     );
+    expect(isSafeDingmapExportFilename("美团点/苏州黑闸-6.9-17.31.xlsx")).toBe(false);
     expect(isSafeDingmapExportFilename("dingmap-import-20260608-093000.csv")).toBe(false);
   });
 
@@ -252,23 +255,31 @@ describe("dingmap export database orchestration", () => {
     const olderFile = join(outputDir, "dingmap-import-20260608-093000.xlsx");
     const newerFile = join(outputDir, "dingmap-import-20260608-100000.xlsx");
     const namedFile = join(outputDir, "dingmap-import-美团点-余杭区第一批-20260608-110000.xlsx");
+    const shortNamedFile = join(outputDir, "美团点-苏州黑闸-6.9-17.31.xlsx");
     writeFileSync(olderFile, "older");
     writeFileSync(newerFile, "newer");
     writeFileSync(namedFile, "named");
+    writeFileSync(shortNamedFile, "short-named");
     writeFileSync(join(outputDir, "notes.txt"), "ignore");
     utimesSync(olderFile, new Date("2026-06-08T01:30:00Z"), new Date("2026-06-08T01:30:00Z"));
     utimesSync(namedFile, new Date("2026-06-08T01:45:00Z"), new Date("2026-06-08T01:45:00Z"));
     utimesSync(newerFile, new Date("2026-06-08T02:00:00Z"), new Date("2026-06-08T02:00:00Z"));
+    utimesSync(
+      shortNamedFile,
+      new Date("2026-06-08T02:30:00Z"),
+      new Date("2026-06-08T02:30:00Z"),
+    );
 
     const files = listDingmapExportFiles(outputDir);
 
     expect(files.map((file) => file.filename)).toEqual([
+      "美团点-苏州黑闸-6.9-17.31.xlsx",
       "dingmap-import-20260608-100000.xlsx",
       "dingmap-import-美团点-余杭区第一批-20260608-110000.xlsx",
       "dingmap-import-20260608-093000.xlsx",
     ]);
     expect(selectLatestDingmapExportFile(outputDir)?.filename).toBe(
-      "dingmap-import-20260608-100000.xlsx",
+      "美团点-苏州黑闸-6.9-17.31.xlsx",
     );
   });
 });

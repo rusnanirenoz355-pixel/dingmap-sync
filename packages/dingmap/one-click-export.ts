@@ -32,22 +32,19 @@ export function buildDingmapExportFilename(
   now = new Date(),
   options: DingmapExportFilenameOptions = {},
 ): string {
-  const year = now.getFullYear();
-  const month = padDatePart(now.getMonth() + 1);
-  const day = padDatePart(now.getDate());
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
   const hour = padDatePart(now.getHours());
   const minute = padDatePart(now.getMinutes());
-  const second = padDatePart(now.getSeconds());
-  const timestamp = `${year}${month}${day}-${hour}${minute}${second}`;
-  const segments = [sanitizeFilenameSegment(options.platformLabel), sanitizeFilenameSegment(options.exportName)]
-    .filter((segment): segment is string => Boolean(segment))
-    .map((segment) => truncateFilenameSegment(segment));
+  const timestamp = `${month}.${day}-${hour}.${minute}`;
+  const platformLabel = truncateFilenameSegment(
+    sanitizeFilenameSegment(options.platformLabel) || "面试点",
+  );
+  const exportName = truncateFilenameSegment(
+    sanitizeFilenameSegment(options.exportName) || "未命名",
+  );
 
-  if (segments.length === 0) {
-    return `dingmap-import-${timestamp}.xlsx`;
-  }
-
-  return `dingmap-import-${segments.join("-")}-${timestamp}.xlsx`;
+  return `${platformLabel}-${exportName}-${timestamp}.xlsx`;
 }
 
 export async function writeDingmapOneClickExport(

@@ -7,10 +7,15 @@ import {
   DINGMAP_TARGET_MAP_NAME,
   DINGMAP_TARGET_MAP_URL,
   DINGMAP_TARGET_TEAM_NAME,
+  openDingmapUploadSession,
   runDingmapUploadBrowser,
   type DingmapUploadBrowserSession,
   type DingmapUploadStatus,
 } from "@dingmap-sync/browser-controller/dingmap-upload";
+import type {
+  DingmapAssistSnapshot,
+  DingmapAssistedUploadStep,
+} from "@dingmap-sync/browser-controller/dingmap-assisted-locator";
 import {
   DINGMAP_COORDINATE_TYPE,
   DINGMAP_PLATFORM_OPTIONS,
@@ -46,6 +51,9 @@ export interface DingmapUploadJobSnapshot {
   coordinateType: string;
   message: string;
   stage?: string;
+  assistStep?: DingmapAssistedUploadStep;
+  assistPrompt?: string;
+  assistSnapshot?: DingmapAssistSnapshot;
   dataRows?: number;
   maxRows?: number;
   startedAt: string;
@@ -64,23 +72,27 @@ export interface DingmapUploadStatusResponse {
 export interface CreateDingmapUploadJobOptions {
   filename?: string;
   platform?: unknown;
+  manualAssist?: boolean;
   timeoutMs?: number;
 }
 
 interface DingmapUploadJob extends DingmapUploadJobSnapshot {
   exportFilePath: string;
   platformConfig: DingmapPlatformConfig;
+  manualAssist: boolean;
   session?: DingmapUploadBrowserSession;
   timeoutMs?: number;
 }
 
 type Store = {
   currentJob: DingmapUploadJob | null;
+  sharedSession?: DingmapUploadBrowserSession;
 };
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const PROFILE_DIR = join(PROJECT_ROOT, "data", "browser-profile", "dingmap");
 const SCREENSHOTS_DIR = join(PROJECT_ROOT, "data", "screenshots", "dingmap-upload");
+const DEBUG_DIR = join(PROJECT_ROOT, "data", "debug", "dingmap-upload");
 const TERMINAL_STATUSES = new Set<DingmapUploadStatus>([
   "success",
   "failed",
@@ -91,6 +103,7 @@ const TERMINAL_STATUSES = new Set<DingmapUploadStatus>([
 const ACTIVE_STATUSES = new Set<DingmapUploadStatus>([
   "pending",
   "opening_dingmap",
+  "manual_assist",
   "uploading",
   "confirming",
 ]);
@@ -104,8 +117,8 @@ export async function createDingmapUploadJob(
     throw new Error("已有钉图上传任务正在执行。");
   }
 
-  if (store.currentJob?.status === "requires_login") {
-    throw new Error("已有钉图上传任务等待登录，请先继续该任务。");
+  if (store.currentJob?.status === "requires_login" || store.currentJob?.status === "manual_assist") {
+    throw new Error("已有钉图上传任务等待人工操作，请先继续该任务。");
   }
 
   const platform = resolveDingmapPlatform(options.platform);
@@ -134,6 +147,7 @@ export async function createDingmapUploadJob(
     coordinateType: DINGMAP_COORDINATE_TYPE,
     exportFilePath: selected.filePath,
     platformConfig: platform,
+    manualAssist: options.manualAssist === true,
     message: `等待上传到 ${platform.label} / ${platform.layerName}。`,
     startedAt: now,
     updatedAt: now,
@@ -170,12 +184,34 @@ export function continueDingmapUploadJob(): DingmapUploadJobSnapshot {
     throw new Error("没有可继续的钉图上传任务。");
   }
 
-  if (job.status !== "requires_login") {
+  if (job.status !== "requires_login" && job.status !== "manual_assist") {
     throw new Error("当前钉图上传任务不需要继续。");
   }
 
   void runJob(job);
   return toSnapshot(job);
+}
+
+export async function openDingmapAutomationBrowser(): Promise<{
+  message: string;
+  url: string;
+}> {
+  mkdirSync(PROFILE_DIR, { recursive: true });
+  const session =
+    store.currentJob?.session ??
+    store.sharedSession ??
+    (await openDingmapUploadSession(PROFILE_DIR));
+  store.sharedSession = session;
+
+  if (!session.page.url().includes("dm.dingmap.com")) {
+    await session.page.goto(DINGMAP_HOME_URL, { waitUntil: "domcontentloaded", timeout: 15_000 });
+  }
+  await session.page.bringToFront().catch(() => undefined);
+
+  return {
+    message: "已在自动化 Chrome 中打开钉图。",
+    url: session.page.url(),
+  };
 }
 
 export function getDingmapUploadStatus(): DingmapUploadStatusResponse {
@@ -192,20 +228,38 @@ async function runJob(job: DingmapUploadJob): Promise<void> {
   try {
     mkdirSync(PROFILE_DIR, { recursive: true });
     mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+    mkdirSync(DEBUG_DIR, { recursive: true });
     setJobStatus(job, "opening_dingmap", "正在打开钉图地图列表。");
     const result = await runDingmapUploadBrowser({
       exportFilePath: job.exportFilePath,
       profileDir: PROFILE_DIR,
       screenshotsDir: SCREENSHOTS_DIR,
+      debugDir: DEBUG_DIR,
       mapUrl: DINGMAP_HOME_URL,
       platform: job.platform,
+      manualAssist: job.manualAssist,
+      assistStep: job.assistStep,
       timeoutMs: job.timeoutMs,
-      session: job.session,
+      session: job.session ?? store.sharedSession,
       onStatus: (status, message) => setJobStatus(job, status, message),
     });
 
     job.session = result.session;
+    store.sharedSession = result.session ?? store.sharedSession;
     job.stage = result.stage ?? job.stage;
+    job.assistStep = result.assistStep;
+    job.assistPrompt = result.assistPrompt;
+    job.assistSnapshot = result.assistSnapshot
+      ? {
+          ...result.assistSnapshot,
+          screenshotPath: result.assistSnapshot.screenshotPath
+            ? toProjectRelativePath(result.assistSnapshot.screenshotPath)
+            : undefined,
+          debugPath: result.assistSnapshot.debugPath
+            ? toProjectRelativePath(result.assistSnapshot.debugPath)
+            : undefined,
+        }
+      : undefined;
     job.screenshotPath = result.screenshotPath
       ? toProjectRelativePath(result.screenshotPath)
       : undefined;
@@ -217,7 +271,6 @@ async function runJob(job: DingmapUploadJob): Promise<void> {
       writeUploadSyncLog(job);
     }
   } catch (error) {
-    job.session = undefined;
     job.finishedAt = new Date().toISOString();
     setJobStatus(job, "failed", error instanceof Error ? error.message : String(error));
     writeUploadSyncLog(job);
@@ -271,6 +324,7 @@ function writeUploadSyncLog(job: DingmapUploadJob): void {
           markerSize: job.markerSize,
           coordinateType: job.coordinateType,
           stage: job.stage,
+          assistStep: job.assistStep,
           startedAt: job.startedAt,
           finishedAt: job.finishedAt,
           teamName: DINGMAP_TARGET_TEAM_NAME,
@@ -332,6 +386,9 @@ function toSnapshot(job: DingmapUploadJob): DingmapUploadJobSnapshot {
     coordinateType: job.coordinateType,
     message: job.message,
     stage: job.stage,
+    assistStep: job.assistStep,
+    assistPrompt: job.assistPrompt,
+    assistSnapshot: job.assistSnapshot,
     dataRows: job.dataRows,
     maxRows: job.maxRows,
     startedAt: job.startedAt,

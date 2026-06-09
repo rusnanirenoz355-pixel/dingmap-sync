@@ -7,6 +7,7 @@ export async function POST(request: Request): Promise<Response> {
     const body = (await request.json().catch(() => ({}))) as {
       filename?: unknown;
       platform?: unknown;
+      manualAssist?: unknown;
       timeoutMs?: unknown;
     };
     const filename = typeof body.filename === "string" && body.filename.trim() ? body.filename.trim() : undefined;
@@ -19,6 +20,7 @@ export async function POST(request: Request): Promise<Response> {
       job: await createDingmapUploadJob({
         filename,
         platform: body.platform,
+        manualAssist: body.manualAssist === true,
         timeoutMs,
       }),
     });
