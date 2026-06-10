@@ -97,14 +97,22 @@ export function buildLayerMoreButtonSelectors(layerName: string): string[] {
 export function buildMarkerColorSelectors(colorLabel: string, color: Parameters<typeof getDingmapMarkerColorIndex>[0]): string[] {
   const colorIndex = getDingmapMarkerColorIndex(color);
   const oneBasedIndex = colorIndex + 1;
+  const markerStyleLabel = toXPathString("\u6807\u8bb0\u6837\u5f0f");
+  const markerSizeLabel = toXPathString("\u6807\u8bb0\u5927\u5c0f");
   return [
-    `[aria-label*='${colorLabel}']`,
-    `[title*='${colorLabel}']`,
-    `[role='button']:has-text('${colorLabel}')`,
-    `button:has-text('${colorLabel}')`,
+    `.ant-popover [aria-label*='${colorLabel}']`,
+    `.ant-dropdown [aria-label*='${colorLabel}']`,
+    `[role='dialog'] [aria-label*='${colorLabel}']`,
+    `.ant-popover [title*='${colorLabel}']`,
+    `.ant-dropdown [title*='${colorLabel}']`,
+    `[role='dialog'] [title*='${colorLabel}']`,
+    `.ant-popover [role='button']:has-text('${colorLabel}')`,
+    `.ant-dropdown [role='button']:has-text('${colorLabel}')`,
+    `[role='dialog'] [role='button']:has-text('${colorLabel}')`,
     // nth fallback based on the current DingMap color swatch order:
     // blue, green, red, purple, orange, yellow, black.
-    `xpath=(//*[@role='dialog']//*[@role='button' or self::button][not(contains(normalize-space(.), '小'))])[${oneBasedIndex}]`,
+    `xpath=(//*[contains(@class, 'ant-popover') or contains(@class, 'ant-dropdown') or contains(@class, 'popover') or contains(@class, 'dropdown')]//*[self::button or @role='button' or @role='option' or contains(@class, 'color') or contains(@class, 'swatch') or contains(@class, 'colour') or contains(@class, 'icon') or contains(@style, 'background') or contains(@style, 'border-color')][not(contains(normalize-space(.), '小'))])[${oneBasedIndex}]`,
+    `xpath=(//*[contains(normalize-space(.), ${markerStyleLabel})]/following::*[(contains(@class, 'color') or contains(@class, 'swatch') or contains(@class, 'colour') or contains(@style, 'background') or contains(@style, 'border-color')) and not(preceding::*[contains(normalize-space(.), ${markerSizeLabel})])][${oneBasedIndex}])`,
   ];
 }
 
