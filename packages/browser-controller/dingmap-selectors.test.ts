@@ -42,9 +42,14 @@ describe("dingmap upload selectors", () => {
   });
 
   it("keeps marker color nth fallbacks centralized", () => {
-    const selectors = buildMarkerColorSelectors("黄色", "yellow");
+    const yellow = "\u9ec4\u8272";
+    const selectors = buildMarkerColorSelectors(yellow, "yellow");
 
-    expect(selectors).toContain("[aria-label*='黄色']");
+    expect(selectors).toContain(`.ant-popover [aria-label*='${yellow}']`);
+    expect(selectors).toContain(`.ant-dropdown [aria-label*='${yellow}']`);
+    expect(selectors).toContain(`[role='dialog'] [aria-label*='${yellow}']`);
+    expect(selectors.at(-1)).toContain("following::*");
+    expect(selectors.at(-1)).not.toContain("self::button");
     expect(selectors.at(-1)).toContain("[6]");
   });
 });

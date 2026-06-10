@@ -33,18 +33,15 @@ const editableFields: Array<{
   label: string;
   multiline?: boolean;
 }> = [
-  { key: "siteName", label: "名称" },
-  { key: "address", label: "地址", multiline: true },
+  { key: "siteName", label: "站点名称" },
+  { key: "address", label: "站点地址", multiline: true },
   { key: "longitude", label: "经度" },
   { key: "latitude", label: "纬度" },
   { key: "stationManager", label: "联系人" },
-  { key: "phone", label: "手机号" },
-  { key: "salary", label: "薪资", multiline: true },
-  { key: "welfare", label: "福利", multiline: true },
-  { key: "interviewTime", label: "面试时间" },
-  { key: "jobTitle", label: "岗位" },
-  { key: "remark", label: "备注", multiline: true },
-];
+  { key: "salary", label: "薪资待遇", multiline: true },
+  { key: "welfare", label: "福利待遇", multiline: true },
+  { key: "remark", label: "交付条件", multiline: true },
+]
 
 export function ManagementDrawer({
   deleting,

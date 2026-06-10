@@ -7,15 +7,15 @@ import {
   DINGMAP_TARGET_MAP_NAME,
   DINGMAP_TARGET_MAP_URL,
   DINGMAP_TARGET_TEAM_NAME,
+  DINGMAP_BROWSER_CLOSED_MESSAGE,
+  formatDingmapUploadErrorMessage,
+  isDingmapUploadSessionUsable,
   openDingmapUploadSession,
   runDingmapUploadBrowser,
   type DingmapUploadBrowserSession,
+  type DingmapUploadStatusDetails,
   type DingmapUploadStatus,
 } from "@dingmap-sync/browser-controller/dingmap-upload";
-import type {
-  DingmapAssistSnapshot,
-  DingmapAssistedUploadStep,
-} from "@dingmap-sync/browser-controller/dingmap-assisted-locator";
 import {
   DINGMAP_COORDINATE_TYPE,
   DINGMAP_PLATFORM_OPTIONS,
@@ -49,11 +49,11 @@ export interface DingmapUploadJobSnapshot {
   markerColorLabel: string;
   markerSize: string;
   coordinateType: string;
+  confirmedCoordinateType?: string;
+  confirmedMarkerStyle?: string;
+  confirmedMarkerSize?: string;
   message: string;
   stage?: string;
-  assistStep?: DingmapAssistedUploadStep;
-  assistPrompt?: string;
-  assistSnapshot?: DingmapAssistSnapshot;
   dataRows?: number;
   maxRows?: number;
   startedAt: string;
@@ -72,14 +72,12 @@ export interface DingmapUploadStatusResponse {
 export interface CreateDingmapUploadJobOptions {
   filename?: string;
   platform?: unknown;
-  manualAssist?: boolean;
   timeoutMs?: number;
 }
 
 interface DingmapUploadJob extends DingmapUploadJobSnapshot {
   exportFilePath: string;
   platformConfig: DingmapPlatformConfig;
-  manualAssist: boolean;
   session?: DingmapUploadBrowserSession;
   timeoutMs?: number;
 }
@@ -92,7 +90,6 @@ type Store = {
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const PROFILE_DIR = join(PROJECT_ROOT, "data", "browser-profile", "dingmap");
 const SCREENSHOTS_DIR = join(PROJECT_ROOT, "data", "screenshots", "dingmap-upload");
-const DEBUG_DIR = join(PROJECT_ROOT, "data", "debug", "dingmap-upload");
 const TERMINAL_STATUSES = new Set<DingmapUploadStatus>([
   "success",
   "failed",
@@ -103,7 +100,6 @@ const TERMINAL_STATUSES = new Set<DingmapUploadStatus>([
 const ACTIVE_STATUSES = new Set<DingmapUploadStatus>([
   "pending",
   "opening_dingmap",
-  "manual_assist",
   "uploading",
   "confirming",
 ]);
@@ -113,11 +109,13 @@ const store = getStore();
 export async function createDingmapUploadJob(
   options: CreateDingmapUploadJobOptions = {},
 ): Promise<DingmapUploadJobSnapshot> {
+  recoverClosedUploadJob();
+
   if (store.currentJob && ACTIVE_STATUSES.has(store.currentJob.status)) {
     throw new Error("已有钉图上传任务正在执行。");
   }
 
-  if (store.currentJob?.status === "requires_login" || store.currentJob?.status === "manual_assist") {
+  if (store.currentJob?.status === "requires_login") {
     throw new Error("已有钉图上传任务等待人工操作，请先继续该任务。");
   }
 
@@ -147,7 +145,6 @@ export async function createDingmapUploadJob(
     coordinateType: DINGMAP_COORDINATE_TYPE,
     exportFilePath: selected.filePath,
     platformConfig: platform,
-    manualAssist: options.manualAssist === true,
     message: `等待上传到 ${platform.label} / ${platform.layerName}。`,
     startedAt: now,
     updatedAt: now,
@@ -179,12 +176,14 @@ export async function createDingmapUploadJob(
 }
 
 export function continueDingmapUploadJob(): DingmapUploadJobSnapshot {
+  recoverClosedUploadJob();
+
   const job = store.currentJob;
   if (!job) {
     throw new Error("没有可继续的钉图上传任务。");
   }
 
-  if (job.status !== "requires_login" && job.status !== "manual_assist") {
+  if (job.status !== "requires_login") {
     throw new Error("当前钉图上传任务不需要继续。");
   }
 
@@ -198,8 +197,10 @@ export async function openDingmapAutomationBrowser(): Promise<{
 }> {
   mkdirSync(PROFILE_DIR, { recursive: true });
   const session =
-    store.currentJob?.session ??
-    store.sharedSession ??
+    (isDingmapUploadSessionUsable(store.currentJob?.session)
+      ? store.currentJob?.session
+      : undefined) ??
+    (isDingmapUploadSessionUsable(store.sharedSession) ? store.sharedSession : undefined) ??
     (await openDingmapUploadSession(PROFILE_DIR));
   store.sharedSession = session;
 
@@ -215,6 +216,8 @@ export async function openDingmapAutomationBrowser(): Promise<{
 }
 
 export function getDingmapUploadStatus(): DingmapUploadStatusResponse {
+  recoverClosedUploadJob();
+
   return {
     job: store.currentJob ? toSnapshot(store.currentJob) : null,
     recentExports: listDingmapExportFiles(DEFAULT_EXPORT_DIR)
@@ -224,42 +227,58 @@ export function getDingmapUploadStatus(): DingmapUploadStatusResponse {
   };
 }
 
+export function resetDingmapUploadJob(): DingmapUploadStatusResponse {
+  store.currentJob = null;
+  if (!isDingmapUploadSessionUsable(store.sharedSession)) {
+    store.sharedSession = undefined;
+  }
+
+  return getDingmapUploadStatus();
+}
+
+function recoverClosedUploadJob(): void {
+  if (!isDingmapUploadSessionUsable(store.sharedSession)) {
+    store.sharedSession = undefined;
+  }
+
+  const job = store.currentJob;
+  if (!job) {
+    return;
+  }
+
+  const waitingOrRunning = ACTIVE_STATUSES.has(job.status) || job.status === "requires_login";
+  if (!waitingOrRunning || !job.session || isDingmapUploadSessionUsable(job.session)) {
+    return;
+  }
+
+  job.session = undefined;
+  job.finishedAt = new Date().toISOString();
+  setJobStatus(job, "failed", DINGMAP_BROWSER_CLOSED_MESSAGE, "browser-closed");
+  writeUploadSyncLog(job);
+}
+
 async function runJob(job: DingmapUploadJob): Promise<void> {
   try {
     mkdirSync(PROFILE_DIR, { recursive: true });
     mkdirSync(SCREENSHOTS_DIR, { recursive: true });
-    mkdirSync(DEBUG_DIR, { recursive: true });
     setJobStatus(job, "opening_dingmap", "正在打开钉图地图列表。");
     const result = await runDingmapUploadBrowser({
       exportFilePath: job.exportFilePath,
       profileDir: PROFILE_DIR,
       screenshotsDir: SCREENSHOTS_DIR,
-      debugDir: DEBUG_DIR,
       mapUrl: DINGMAP_HOME_URL,
       platform: job.platform,
-      manualAssist: job.manualAssist,
-      assistStep: job.assistStep,
       timeoutMs: job.timeoutMs,
-      session: job.session ?? store.sharedSession,
-      onStatus: (status, message) => setJobStatus(job, status, message),
+      session:
+        (isDingmapUploadSessionUsable(job.session) ? job.session : undefined) ??
+        (isDingmapUploadSessionUsable(store.sharedSession) ? store.sharedSession : undefined),
+      onStatus: (status, message, details) => setJobStatus(job, status, message, details?.stage, details),
     });
 
-    job.session = result.session;
-    store.sharedSession = result.session ?? store.sharedSession;
+    job.session = isDingmapUploadSessionUsable(result.session) ? result.session : undefined;
+    store.sharedSession = isDingmapUploadSessionUsable(result.session) ? result.session : undefined;
+    applyUploadStatusDetails(job, result);
     job.stage = result.stage ?? job.stage;
-    job.assistStep = result.assistStep;
-    job.assistPrompt = result.assistPrompt;
-    job.assistSnapshot = result.assistSnapshot
-      ? {
-          ...result.assistSnapshot,
-          screenshotPath: result.assistSnapshot.screenshotPath
-            ? toProjectRelativePath(result.assistSnapshot.screenshotPath)
-            : undefined,
-          debugPath: result.assistSnapshot.debugPath
-            ? toProjectRelativePath(result.assistSnapshot.debugPath)
-            : undefined,
-        }
-      : undefined;
     job.screenshotPath = result.screenshotPath
       ? toProjectRelativePath(result.screenshotPath)
       : undefined;
@@ -272,7 +291,13 @@ async function runJob(job: DingmapUploadJob): Promise<void> {
     }
   } catch (error) {
     job.finishedAt = new Date().toISOString();
-    setJobStatus(job, "failed", error instanceof Error ? error.message : String(error));
+    const message = formatDingmapUploadErrorMessage(error);
+    setJobStatus(
+      job,
+      "failed",
+      message,
+      message === DINGMAP_BROWSER_CLOSED_MESSAGE ? "browser-closed" : undefined,
+    );
     writeUploadSyncLog(job);
   }
 }
@@ -282,11 +307,32 @@ function setJobStatus(
   status: DingmapUploadStatus,
   message: string,
   stage?: string,
+  details?: DingmapUploadStatusDetails,
 ): void {
+  applyUploadStatusDetails(job, details);
   job.status = status;
   job.message = message;
   job.stage = stage ?? job.stage;
   job.updatedAt = new Date().toISOString();
+}
+
+function applyUploadStatusDetails(
+  job: DingmapUploadJob,
+  details?: DingmapUploadStatusDetails | null,
+): void {
+  if (!details) {
+    return;
+  }
+
+  if (details.confirmedCoordinateType !== undefined) {
+    job.confirmedCoordinateType = details.confirmedCoordinateType;
+  }
+  if (details.confirmedMarkerStyle !== undefined) {
+    job.confirmedMarkerStyle = details.confirmedMarkerStyle;
+  }
+  if (details.confirmedMarkerSize !== undefined) {
+    job.confirmedMarkerSize = details.confirmedMarkerSize;
+  }
 }
 
 function writeUploadSyncLog(job: DingmapUploadJob): void {
@@ -323,8 +369,10 @@ function writeUploadSyncLog(job: DingmapUploadJob): void {
           markerColorLabel: job.markerColorLabel,
           markerSize: job.markerSize,
           coordinateType: job.coordinateType,
+          confirmedCoordinateType: job.confirmedCoordinateType,
+          confirmedMarkerStyle: job.confirmedMarkerStyle,
+          confirmedMarkerSize: job.confirmedMarkerSize,
           stage: job.stage,
-          assistStep: job.assistStep,
           startedAt: job.startedAt,
           finishedAt: job.finishedAt,
           teamName: DINGMAP_TARGET_TEAM_NAME,
@@ -384,11 +432,11 @@ function toSnapshot(job: DingmapUploadJob): DingmapUploadJobSnapshot {
     markerColorLabel: job.markerColorLabel,
     markerSize: job.markerSize,
     coordinateType: job.coordinateType,
+    confirmedCoordinateType: job.confirmedCoordinateType,
+    confirmedMarkerStyle: job.confirmedMarkerStyle,
+    confirmedMarkerSize: job.confirmedMarkerSize,
     message: job.message,
     stage: job.stage,
-    assistStep: job.assistStep,
-    assistPrompt: job.assistPrompt,
-    assistSnapshot: job.assistSnapshot,
     dataRows: job.dataRows,
     maxRows: job.maxRows,
     startedAt: job.startedAt,

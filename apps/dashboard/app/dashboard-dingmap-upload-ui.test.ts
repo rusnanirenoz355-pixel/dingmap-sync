@@ -7,24 +7,37 @@ describe("dashboard DingMap upload UI", () => {
 
   it("opens DingMap through the automation browser API instead of a normal link", () => {
     expect(source).toContain("handleDingmapOpen");
-    expect(source).toContain('/api/dingmap/open');
+    expect(source).toContain("/api/dingmap/open");
     expect(source).not.toContain('href="https://dm.dingmap.com/home"');
     expect(source).not.toContain('target="_blank"');
   });
 
-  it("offers manual assisted positioning and continue controls", () => {
-    expect(source).toContain("人工辅助定位");
-    expect(source).toContain("manualAssist");
-    expect(source).toContain("await startDingmapUpload(true);");
-    expect(source).toContain("manual_assist");
-    expect(source).toContain("继续");
+  it("does not expose manual assisted positioning in the product upload flow", () => {
+    expect(source).not.toContain("人工辅助定位");
+    expect(source).not.toContain("manualAssist");
+    expect(source).not.toContain("manual_assist");
+    expect(source).not.toContain("assistSnapshot");
+  });
+
+  it("offers login continuation and upload reset controls", () => {
+    expect(source).toContain("handleDingmapUploadContinue");
+    expect(source).toContain("handleDingmapUploadReset");
+    expect(source).toContain("/api/dingmap/upload/reset");
+    expect(source).toContain("重置上传任务");
   });
 
   it("maps internal stages to concise Chinese labels", () => {
     expect(source).toContain("uploadStageLabels");
-    expect(source).toContain('"set-coordinate-type": "正在选择坐标类型"');
-    expect(source).toContain('manual_assist: "等待人工辅助"');
+    expect(source).toContain('"set-coordinate-type"');
+    expect(source).toContain('"browser-closed"');
     expect(source).toContain("formatUploadStage");
-    expect(source).not.toContain('value={job.stage ?? job.status}');
+    expect(source).toContain("formatUploadMessage");
+  });
+
+  it("separates target import options from page-confirmed values", () => {
+    expect(source).toContain("\u76ee\u6807\u6807\u8bb0\u5927\u5c0f");
+    expect(source).toContain("\u9875\u9762\u786e\u8ba4\u6807\u8bb0\u5927\u5c0f");
+    expect(source).toContain("confirmedMarkerSize ??");
+    expect(source).not.toContain("\u5f53\u524d\u6807\u8bb0\u5927\u5c0f");
   });
 });

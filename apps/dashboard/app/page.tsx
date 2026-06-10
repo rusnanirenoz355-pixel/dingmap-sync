@@ -89,7 +89,6 @@ type DingmapUploadStatus =
   | "pending"
   | "opening_dingmap"
   | "requires_login"
-  | "manual_assist"
   | "uploading"
   | "confirming"
   | "success"
@@ -108,17 +107,11 @@ interface DingmapUploadJob {
   markerColorLabel: string;
   markerSize: string;
   coordinateType: string;
+  confirmedCoordinateType?: string;
+  confirmedMarkerStyle?: string;
+  confirmedMarkerSize?: string;
   message: string;
   stage?: string;
-  assistStep?: string;
-  assistPrompt?: string;
-  assistSnapshot?: {
-    step: string;
-    url: string;
-    title: string;
-    screenshotPath?: string;
-    debugPath?: string;
-  };
   dataRows?: number;
   maxRows?: number;
   startedAt: string;
@@ -184,7 +177,6 @@ const uploadStatusLabels: Record<DingmapUploadStatus, string> = {
   pending: "等待上传",
   opening_dingmap: "正在打开钉图",
   requires_login: "需要手动登录",
-  manual_assist: "等待人工辅助",
   uploading: "正在上传文件",
   confirming: "正在确认导入",
   success: "上传成功",
@@ -214,13 +206,12 @@ const uploadStageLabels: Record<string, string> = {
   unknown: "已提交，等待人工确认",
   failed: "导入失败",
   blocked: "自动化受阻",
-  manual_assist: "等待人工辅助",
+  "browser-closed": "自动化浏览器已关闭",
 };
 
 const uploadActiveStatuses = new Set<DingmapUploadStatus>([
   "pending",
   "opening_dingmap",
-  "manual_assist",
   "uploading",
   "confirming",
 ]);
@@ -549,14 +540,10 @@ export default function DashboardPage() {
   }
 
   async function handleDingmapUpload() {
-    await startDingmapUpload(true);
+    await startDingmapUpload();
   }
 
-  async function handleDingmapManualAssist() {
-    await startDingmapUpload(true);
-  }
-
-  async function startDingmapUpload(manualAssist: boolean) {
+  async function startDingmapUpload() {
     setUploadErrorMsg(null);
     setLoading("upload");
     try {
@@ -566,7 +553,6 @@ export default function DashboardPage() {
         body: JSON.stringify({
           filename: selectedUploadFilename || undefined,
           platform: selectedUploadPlatform,
-          manualAssist,
         }),
       });
       const data = (await response.json()) as { job?: DingmapUploadJob; error?: string };
@@ -617,6 +603,27 @@ export default function DashboardPage() {
       setUploadJob(data.job);
     } catch (error) {
       setUploadErrorMsg(error instanceof Error ? error.message : "继续钉图上传任务失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleDingmapUploadReset() {
+    setUploadErrorMsg(null);
+    setLoading("upload");
+    try {
+      const response = await fetch("/api/dingmap/upload/reset", {
+        method: "POST",
+      });
+      const data = (await response.json()) as DingmapUploadStatusResponse & { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "重置钉图上传任务失败。");
+      }
+
+      setUploadJob(data.job ?? null);
+      await loadUploadStatus(selectedUploadFilename);
+    } catch (error) {
+      setUploadErrorMsg(error instanceof Error ? error.message : "重置钉图上传任务失败。");
     } finally {
       setLoading(null);
     }
@@ -904,7 +911,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex flex-wrap items-end gap-2 lg:justify-end">
-              {uploadJob?.status === "requires_login" || uploadJob?.status === "manual_assist" ? (
+              {uploadJob?.status === "requires_login" ? (
                 <button
                   className="inline-flex h-10 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
                   disabled={loading === "upload"}
@@ -919,23 +926,17 @@ export default function DashboardPage() {
                   <span>继续上传</span>
                 </button>
               ) : null}
-              <button
-                className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={
-                  loading === "upload" ||
-                  recentExports.length === 0 ||
-                  Boolean(uploadJob && uploadActiveStatuses.has(uploadJob.status))
-                }
-                onClick={handleDingmapManualAssist}
-                type="button"
-              >
-                {loading === "upload" ? (
-                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Settings2 aria-hidden="true" className="h-4 w-4" />
-                )}
-                <span>人工辅助定位</span>
-              </button>
+              {uploadJob ? (
+                <button
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={loading === "upload"}
+                  onClick={handleDingmapUploadReset}
+                  type="button"
+                >
+                  <RotateCcw aria-hidden="true" className="h-4 w-4" />
+                  <span>重置上传任务</span>
+                </button>
+              ) : null}
               <button
                 className="inline-flex h-10 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
                 disabled={
@@ -991,6 +992,8 @@ export default function DashboardPage() {
 }
 
 function DingmapUploadStatusPanel({ job }: { job: DingmapUploadJob }) {
+  const displayMessage = formatUploadMessage(job.message);
+
   return (
     <div className="mt-3 rounded-md border border-line bg-tableHead px-3 py-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1008,11 +1011,14 @@ function DingmapUploadStatusPanel({ job }: { job: DingmapUploadJob }) {
       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <UploadStatusItem label="当前上传平台" value={job.platformLabel} />
         <UploadStatusItem label="当前图层" value={job.layerName} />
-        <UploadStatusItem label="当前标记样式" value={job.markerColorLabel} />
-        <UploadStatusItem label="当前标记大小" value={job.markerSize} />
+        <UploadStatusItem label="目标标记样式" value={job.markerColorLabel} />
+        <UploadStatusItem label="页面确认标记样式" value={job.confirmedMarkerStyle ?? "未确认"} />
+        <UploadStatusItem label="目标标记大小" value={job.markerSize} />
+        <UploadStatusItem label="页面确认标记大小" value={job.confirmedMarkerSize ?? "未确认"} />
         <UploadStatusItem label="当前上传文件" value={job.filename} />
         <UploadStatusItem label="当前阶段" value={formatUploadStage(job.stage ?? job.status)} />
-        <UploadStatusItem label="坐标类型" value={job.coordinateType} />
+        <UploadStatusItem label="目标坐标类型" value={job.coordinateType} />
+        <UploadStatusItem label="页面确认坐标类型" value={job.confirmedCoordinateType ?? "未确认"} />
         <UploadStatusItem
           label="数据行数"
           value={
@@ -1022,22 +1028,14 @@ function DingmapUploadStatusPanel({ job }: { job: DingmapUploadJob }) {
           }
         />
       </div>
-      <p className="mt-3 text-textSubtle">{job.message}</p>
-      {job.status === "manual_assist" ? (
-        <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-          {job.assistPrompt ?? job.message}
-        </div>
-      ) : null}
+      <p className="mt-3 text-textSubtle">{displayMessage}</p>
       {job.status === "failed" || job.status === "blocked" || job.status === "timeout" ? (
-        <p className="mt-2 line-clamp-2 text-red-700" title={job.message}>
-          失败原因：{job.message}
+        <p className="mt-2 line-clamp-2 text-red-700" title={displayMessage}>
+          失败原因：{displayMessage}
         </p>
       ) : null}
       {job.screenshotPath ? (
         <p className="mt-2 break-all text-textWeak">截图：{job.screenshotPath}</p>
-      ) : null}
-      {job.assistSnapshot?.debugPath ? (
-        <p className="mt-2 break-all text-textWeak">DOM 摘要：{job.assistSnapshot.debugPath}</p>
       ) : null}
     </div>
   );
@@ -1060,6 +1058,18 @@ function formatUploadStage(stage?: string): string {
   }
 
   return uploadStageLabels[stage] ?? uploadStatusLabels[stage as DingmapUploadStatus] ?? stage;
+}
+
+function formatUploadMessage(message: string): string {
+  if (
+    /Target page, context or browser has been closed|Target page closed|page has been closed|browser has been closed/i.test(
+      message,
+    )
+  ) {
+    return "自动化浏览器已关闭，请点击“重置上传任务”后重新开始。";
+  }
+
+  return message;
 }
 
 function getUploadStatusClass(status: DingmapUploadStatus): string {
@@ -1292,6 +1302,20 @@ function CleanMarkerTable({
   cleanMarkers: CleanMarker[];
   loading: boolean;
 }) {
+  const columns: Array<[string, string]> = [
+    ["行号", "w-16"],
+    ["来源", "w-32"],
+    ["站点名称", "w-48"],
+    ["站点地址", "w-64"],
+    ["联系人", "w-44"],
+    ["薪资待遇", "w-44"],
+    ["福利待遇", "w-44"],
+    ["交付条件", "w-52"],
+    ["状态", "w-28"],
+    ["错误 / 警告", "w-52"],
+    ["更新时间", "w-40"],
+  ];
+
   return (
     <section className="min-w-0 overflow-hidden rounded-card border border-line bg-panel shadow-sm">
       <div className="flex items-center gap-2 border-b border-line px-4 py-3">
@@ -1302,19 +1326,7 @@ function CleanMarkerTable({
         <table className="w-full min-w-[1320px] table-fixed border-collapse text-left text-sm">
           <thead className={STICKY_TABLE_HEAD_CLASS}>
             <tr>
-              {[
-                ["站点名称", "w-44"],
-                ["地址", "w-64"],
-                ["联系人", "w-36"],
-                ["电话", "w-36"],
-                ["薪资", "w-44"],
-                ["福利", "w-44"],
-                ["备注", "w-52"],
-                ["errorMsg", "w-52"],
-                ["同步动作", "w-28"],
-                ["同步状态", "w-28"],
-                ["更新时间", "w-40"],
-              ].map(([column, width]) => (
+              {columns.map(([column, width]) => (
                 <th key={column} className={`${width} px-4 py-3 font-medium`}>
                   {column}
                 </th>
@@ -1324,55 +1336,55 @@ function CleanMarkerTable({
           <tbody>
             {cleanMarkers.length === 0 ? (
               <tr>
-                <td className="px-4 py-5 text-textWeak" colSpan={11}>
+                <td className="px-4 py-5 text-textWeak" colSpan={columns.length}>
                   {loading ? "读取中" : "暂无数据"}
                 </td>
               </tr>
             ) : (
-              cleanMarkers.map((marker) => (
+              cleanMarkers.map((marker, index) => (
                 <tr
                   key={marker.id ?? marker.mergeKey ?? marker.siteName}
                   className="h-20 border-t border-line align-top"
                 >
+                  <TableTextCell value={String(index + 1)} />
+                  <TableTextCell value={marker.source} />
                   <TableTextCell maxLength={48} popoverTitle="站点名称" value={marker.siteName} />
                   <TableTextCell
                     className="text-textSubtle"
                     maxLength={72}
-                    popoverTitle="地址"
+                    popoverTitle="站点地址"
                     value={marker.address}
                   />
                   <TableTextCell
-                    maxLength={48}
+                    maxLength={56}
                     popoverTitle="联系人"
-                    value={marker.stationManager}
+                    value={formatPreviewContact(marker.stationManager, marker.phone)}
                   />
-                  <TableTextCell maxLength={40} popoverTitle="电话" value={marker.phone} />
                   <TableTextCell
                     className="text-textSubtle"
                     maxLength={64}
-                    popoverTitle="薪资"
+                    popoverTitle="薪资待遇"
                     value={marker.salary}
                   />
                   <TableTextCell
                     className="text-textSubtle"
                     maxLength={64}
-                    popoverTitle="福利"
+                    popoverTitle="福利待遇"
                     value={marker.welfare}
                   />
                   <TableTextCell
                     className="text-textSubtle"
                     maxLength={72}
-                    popoverTitle="备注"
+                    popoverTitle="交付条件"
                     value={marker.remark}
                   />
+                  <TableTextCell value={marker.syncStatus} />
                   <TableTextCell
                     className="text-textSubtle"
                     maxLength={72}
-                    popoverTitle="errorMsg"
+                    popoverTitle="错误 / 警告"
                     value={marker.errorMsg}
                   />
-                  <TableTextCell value={marker.syncAction} />
-                  <TableTextCell value={marker.syncStatus} />
                   <TableTextCell className="text-textSubtle" value={marker.updatedAt} />
                 </tr>
               ))

@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 import { POST as continuePost } from "./continue/route";
+import { POST as resetPost } from "./reset/route";
 import { POST as uploadPost } from "./route";
 import { GET as statusGet } from "./status/route";
 
@@ -129,6 +130,15 @@ describe("dingmap upload API routes", () => {
 
     expect(response.status).toBe(400);
     expect(json.error).toContain("没有可继续的钉图上传任务");
+  });
+
+  it("resets the upload job state", async () => {
+    const response = await resetPost();
+    const json = (await response.json()) as { job: unknown; recentExports: unknown };
+
+    expect(response.status).toBe(200);
+    expect(json.job).toBeNull();
+    expect(Array.isArray(json.recentExports)).toBe(true);
   });
 });
 

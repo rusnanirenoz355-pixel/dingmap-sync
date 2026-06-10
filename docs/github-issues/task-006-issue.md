@@ -281,3 +281,17 @@ Done:
 * 人工辅助模式会采集真实页面 DOM 摘要，但只保存到 ignored 本地目录。
 * 如果公司电脑没有安装 Chrome channel，自动化 Chrome 打开会失败，需要安装 Chrome 或后续增加 fallback。
 * 真实上传仍可能遇到登录、验证码、人机验证或权限阻塞；本任务不绕过这些限制。
+## Task 006-G Done 草稿：最终验收 P0 收敛修正
+
+本轮只收敛 P0，不扩展为新的功能包。
+
+实现：
+
+* 移除正式产品流程中的人工辅助定位入口、`manualAssist` 参数和 `manual_assist` 状态。
+* 新增上传任务 reset 能力：失败、blocked、timeout 或浏览器关闭后可回到初始上传状态。
+* 屏蔽 `Target page, context or browser has been closed` 等底层英文错误，改为中文可恢复提示。
+* 统一 Clean Table 字段显示：联系人与电话合并，交付条件字段与导入/导出语义保持一致。
+* Excel/TSV/字段文本导入补充“交付条件”别名。
+* 保持 unknown 不伪造成 success，保持钉图模板固定 7 列，保持 2000 条限制。
+
+P1 批量永久删除和 P2 完整主题切换未在本轮执行。

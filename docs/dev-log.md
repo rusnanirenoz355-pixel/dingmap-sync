@@ -883,3 +883,15 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 * 人工辅助模式会读取真实页面 DOM 摘要用于定位，但只写入 ignored 的本地 `data/debug/dingmap-upload/`。
 * 本轮未做真实钉图导入提交；最后“导入”点击仍由用户在自动化 Chrome 中手动完成。
 * 若系统未安装 Chrome channel，打开自动化 Chrome 时会报错，需要本机安装 Chrome 或后续增加 fallback。
+## 任务卡 006-G：最终验收 P0 收敛修正
+
+已按复查意见撤销产品级“人工辅助定位”方向。Dashboard 不再展示人工辅助定位按钮，上传 API 不再接受 `manualAssist`，上传状态机不再暴露 `manual_assist`；开发阶段定位元素仅保留为 Playwright Inspector、截图、DOM dump 等本地调试手段，不作为正式产品流程。
+
+本轮 P0 同步修正：
+
+* 上传失败或自动化浏览器被关闭后，状态收敛为可恢复失败，并显示“重置上传任务”。
+* `Target page, context or browser has been closed` 等底层错误统一转成中文用户提示。
+* 新增 `/api/dingmap/upload/reset`，重置不清空已选平台、已选文件和导出名称。
+* Clean Table 合并联系人与电话展示，并与预览 / Excel 导入 / 钉图模板导出字段语义对齐。
+* Excel/TSV/字段文本导入补充“交付条件”字段别名。
+* 保持“无经纬度但有站点地址 = 正常”的异常规则及测试覆盖。

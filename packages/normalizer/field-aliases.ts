@@ -7,7 +7,7 @@ export const fieldAliases = {
   station_manager: ["站长", "联系人", "负责人", "经理", "主管"],
   interview_time: ["面试时间", "到场时间", "上班时间"],
   job_title: ["岗位", "职位", "招聘岗位"],
-  remark: ["备注", "说明", "其他", "补充"],
+  remark: ["备注", "说明", "其他", "补充", "\u4ea4\u4ed8\u6761\u4ef6"],
 } as const;
 
 export type NormalizedFieldName = keyof typeof fieldAliases;
