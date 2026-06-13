@@ -56,6 +56,15 @@ export interface YouzhaoPreviewResult extends YouzhaoFetchResult {
   summary: ReturnType<typeof summarizePreviewRows>;
 }
 
+export interface YouzhaoAccessCheckResult {
+  status: YouzhaoApiStatus;
+  method: "GET";
+  endpoint: string;
+  params: Record<string, string>;
+  total: number | null;
+  message?: string;
+}
+
 export class YouzhaoValidationError extends Error {
   readonly status: YouzhaoApiStatus = "failed";
 }
@@ -184,6 +193,29 @@ export async function previewYouzhaoPositions(
     rawRows: mapped.rows,
     rows,
     summary: summarizePreviewRows(rows),
+  };
+}
+
+export async function checkYouzhaoPositionsAccess(
+  input: YouzhaoQueryInput,
+  options: YouzhaoClientOptions = {},
+): Promise<YouzhaoAccessCheckResult> {
+  const query = normalizeYouzhaoQuery({
+    ...input,
+    page: 1,
+    pageSize: 1,
+    limit: 20,
+  });
+  const params = buildPositionsParams({ ...query, page: 1, pageSize: 1 });
+  const response = await fetchYouzhaoPage(params, options.fetchImpl ?? fetch, options);
+
+  return {
+    status: response.status,
+    method: "GET",
+    endpoint: YOUZHAO_POSITIONS_ENDPOINT,
+    params,
+    total: response.total,
+    message: response.message,
   };
 }
 

@@ -16,6 +16,10 @@ export type DingmapImportHeader = (typeof DINGMAP_IMPORT_HEADERS)[number];
 export type DingmapImportRow = Record<DingmapImportHeader, string | number>;
 
 export function mapCleanMarkerToDingmapImportRow(marker: CleanMarker): DingmapImportRow {
+  if (marker.source === "youzhao") {
+    return mapYouzhaoCleanMarkerToDingmapImportRow(marker);
+  }
+
   return {
     标记名称: marker.siteName,
     详细地址: marker.address,
@@ -24,6 +28,18 @@ export function mapCleanMarkerToDingmapImportRow(marker: CleanMarker): DingmapIm
     备注: buildDingmapDescription(marker),
     字段一: buildFieldOne(marker),
     字段二: buildFieldTwo(marker),
+  };
+}
+
+function mapYouzhaoCleanMarkerToDingmapImportRow(marker: CleanMarker): DingmapImportRow {
+  return {
+    标记名称: marker.siteName,
+    详细地址: marker.address,
+    经度: marker.longitude ?? "",
+    纬度: marker.latitude ?? "",
+    备注: buildYouzhaoRemark(marker),
+    字段一: [marker.stationManager?.trim(), marker.phone?.trim()].filter(Boolean).join(" "),
+    字段二: marker.remark?.trim() ?? "",
   };
 }
 
@@ -38,4 +54,14 @@ function buildFieldTwo(marker: Pick<CleanMarker, "remark" | "interviewTime">): s
   }
 
   return marker.interviewTime?.trim() ?? "";
+}
+
+function buildYouzhaoRemark(marker: Pick<CleanMarker, "jobTitle" | "salary" | "welfare">): string {
+  const sections = [
+    ["岗位名称", marker.jobTitle?.trim()],
+    ["薪资方案", marker.salary?.trim()],
+    ["新人政策", marker.welfare?.trim()],
+  ].filter((section): section is [string, string] => Boolean(section[1]));
+
+  return sections.map(([title, value]) => `【${title}】\n${value}`).join("\n\n");
 }

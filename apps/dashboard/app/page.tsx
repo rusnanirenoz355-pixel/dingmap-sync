@@ -79,6 +79,27 @@ interface DingmapExportResult {
   skippedCount: number;
 }
 
+interface YouzhaoOperationResult {
+  status: string;
+  authenticated?: boolean;
+  total?: number | null;
+  returned?: number;
+  rawReturned?: number;
+  filteredNonRecruiting?: number;
+  rows?: ImportPreviewRow[];
+  summary?: PreviewSummary;
+  targetLayerCounts?: Record<string, number>;
+  inserted?: number;
+  updated?: number;
+  skippedDuplicate?: number;
+  skippedInvalid?: number;
+  skippedOther?: number;
+  updateCandidate?: number;
+  cleanMarkers?: CleanMarker[];
+  error?: string;
+  message?: string;
+}
+
 interface CleanMarkerManagementStatistics {
   activeCount: number;
   anomalyCount: number;
@@ -94,6 +115,11 @@ type LoadingState =
   | "paste-import"
   | "excel-preview"
   | "excel-import"
+  | "youzhao-open"
+  | "youzhao-check"
+  | "youzhao-probe"
+  | "youzhao-preview"
+  | "youzhao-import"
   | "clean"
   | "export"
   | null;
@@ -120,6 +146,16 @@ export default function DashboardPage() {
   const [excelSummary, setExcelSummary] = useState<PreviewSummary>(emptySummary);
   const [excelImportResult, setExcelImportResult] = useState<ImportResult | null>(null);
 
+  const [youzhaoCity, setYouzhaoCity] = useState("");
+  const [youzhaoPage, setYouzhaoPage] = useState("1");
+  const [youzhaoPageSize, setYouzhaoPageSize] = useState("20");
+  const [youzhaoLimit, setYouzhaoLimit] = useState("50");
+  const [youzhaoSessionStatus, setYouzhaoSessionStatus] = useState("未检查");
+  const [youzhaoPreviewRows, setYouzhaoPreviewRows] = useState<ImportPreviewRow[]>([]);
+  const [youzhaoSummary, setYouzhaoSummary] = useState<PreviewSummary>(emptySummary);
+  const [youzhaoResult, setYouzhaoResult] = useState<YouzhaoOperationResult | null>(null);
+  const [youzhaoErrorMsg, setYouzhaoErrorMsg] = useState<string | null>(null);
+
   const [cleanMarkers, setCleanMarkers] = useState<CleanMarker[]>([]);
   const [managementStats, setManagementStats] =
     useState<CleanMarkerManagementStatistics | null>(null);
@@ -143,26 +179,34 @@ export default function DashboardPage() {
         .length,
     [excelPreviewRows],
   );
+  const youzhaoImportableCount = useMemo(
+    () =>
+      youzhaoPreviewRows.filter((row) => row.status === "valid" || row.status === "update_candidate")
+        .length,
+    [youzhaoPreviewRows],
+  );
 
   const stats = [
     {
       label: "待新增",
-      value: String(pasteSummary.valid + excelSummary.valid),
+      value: String(pasteSummary.valid + excelSummary.valid + youzhaoSummary.valid),
       tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
     },
     {
       label: "待更新",
-      value: String(pasteSummary.update_candidate + excelSummary.update_candidate),
+      value: String(
+        pasteSummary.update_candidate + excelSummary.update_candidate + youzhaoSummary.update_candidate,
+      ),
       tone: "border-blue-200 bg-blue-50 text-blue-700",
     },
     {
       label: "重复",
-      value: String(pasteSummary.duplicate + excelSummary.duplicate),
+      value: String(pasteSummary.duplicate + excelSummary.duplicate + youzhaoSummary.duplicate),
       tone: "border-slate-200 bg-slate-50 text-slate-700",
     },
     {
       label: "无效",
-      value: String(pasteSummary.invalid + excelSummary.invalid),
+      value: String(pasteSummary.invalid + excelSummary.invalid + youzhaoSummary.invalid),
       tone: "border-red-200 bg-red-50 text-red-700",
     },
     {
@@ -343,6 +387,105 @@ export default function DashboardPage() {
     setExcelErrorMsg(null);
   }
 
+  function buildYouzhaoParams() {
+    return {
+      city: youzhaoCity,
+      page: Number(youzhaoPage),
+      pageSize: Number(youzhaoPageSize),
+      limit: Number(youzhaoLimit),
+    };
+  }
+
+  async function handleYouzhaoOpen() {
+    setYouzhaoErrorMsg(null);
+    setLoading("youzhao-open");
+    try {
+      const response = await fetch("/api/youzhao/session/open", {
+        method: "POST",
+        cache: "no-store",
+      });
+      const data = (await response.json()) as YouzhaoOperationResult;
+      if (!response.ok) {
+        throw new Error(data.error ?? "打开优招登录窗口失败。");
+      }
+      setYouzhaoSessionStatus(data.status);
+      setYouzhaoResult(data);
+    } catch (error) {
+      setYouzhaoErrorMsg(error instanceof Error ? error.message : "打开优招登录窗口失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleYouzhaoCheck() {
+    setYouzhaoErrorMsg(null);
+    setLoading("youzhao-check");
+    try {
+      const params = new URLSearchParams({ city: youzhaoCity });
+      const response = await fetch(`/api/youzhao/session/check?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const data = (await response.json()) as YouzhaoOperationResult;
+      if (!response.ok && data.status !== "requires_login" && data.status !== "forbidden") {
+        throw new Error(data.error ?? data.message ?? "检查优招登录状态失败。");
+      }
+      setYouzhaoSessionStatus(data.status);
+      setYouzhaoResult(data);
+    } catch (error) {
+      setYouzhaoErrorMsg(error instanceof Error ? error.message : "检查优招登录状态失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleYouzhaoProbe() {
+    await requestYouzhaoCollection("/api/youzhao/probe", "youzhao-probe");
+  }
+
+  async function handleYouzhaoPreview() {
+    const data = await requestYouzhaoCollection("/api/youzhao/preview", "youzhao-preview");
+    if (data?.rows && data.summary) {
+      setYouzhaoPreviewRows(data.rows);
+      setYouzhaoSummary(data.summary);
+    }
+  }
+
+  async function handleYouzhaoImport() {
+    const data = await requestYouzhaoCollection("/api/youzhao/import", "youzhao-import");
+    if (data?.cleanMarkers) {
+      setCleanMarkers(data.cleanMarkers);
+      setYouzhaoPreviewRows([]);
+      setYouzhaoSummary(emptySummary);
+      void loadCleanMarkers();
+    }
+  }
+
+  async function requestYouzhaoCollection(
+    endpoint: string,
+    loadingState: Exclude<LoadingState, null>,
+  ): Promise<YouzhaoOperationResult | null> {
+    setYouzhaoErrorMsg(null);
+    setLoading(loadingState);
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildYouzhaoParams()),
+      });
+      const data = (await response.json()) as YouzhaoOperationResult;
+      if (!response.ok) {
+        throw new Error(data.error ?? data.message ?? "优招采集失败。");
+      }
+      setYouzhaoResult(data);
+      return data;
+    } catch (error) {
+      setYouzhaoErrorMsg(error instanceof Error ? error.message : "优招采集失败。");
+      return null;
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function handleDingmapExport() {
     setExportErrorMsg(null);
     setDingmapExportResult(null);
@@ -445,6 +588,29 @@ export default function DashboardPage() {
             <span>管理已导入数据</span>
           </a>
         </section>
+
+        <YouzhaoPanel
+          city={youzhaoCity}
+          errorMsg={youzhaoErrorMsg}
+          importableCount={youzhaoImportableCount}
+          limit={youzhaoLimit}
+          loading={loading}
+          onCheck={handleYouzhaoCheck}
+          onCityChange={setYouzhaoCity}
+          onImport={handleYouzhaoImport}
+          onLimitChange={setYouzhaoLimit}
+          onOpen={handleYouzhaoOpen}
+          onPageChange={setYouzhaoPage}
+          onPageSizeChange={setYouzhaoPageSize}
+          onPreview={handleYouzhaoPreview}
+          onProbe={handleYouzhaoProbe}
+          page={youzhaoPage}
+          pageSize={youzhaoPageSize}
+          result={youzhaoResult}
+          rows={youzhaoPreviewRows}
+          sessionStatus={youzhaoSessionStatus}
+          summary={youzhaoSummary}
+        />
 
         <section className="grid min-w-0 gap-4 lg:grid-cols-[0.82fr_1.18fr]">
           <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-1">
@@ -617,6 +783,209 @@ export default function DashboardPage() {
   );
 }
 
+function YouzhaoPanel({
+  city,
+  errorMsg,
+  importableCount,
+  limit,
+  loading,
+  onCheck,
+  onCityChange,
+  onImport,
+  onLimitChange,
+  onOpen,
+  onPageChange,
+  onPageSizeChange,
+  onPreview,
+  onProbe,
+  page,
+  pageSize,
+  result,
+  rows,
+  sessionStatus,
+  summary,
+}: {
+  city: string;
+  errorMsg: string | null;
+  importableCount: number;
+  limit: string;
+  loading: LoadingState;
+  onCheck: () => void;
+  onCityChange: (value: string) => void;
+  onImport: () => void;
+  onLimitChange: (value: string) => void;
+  onOpen: () => void;
+  onPageChange: (value: string) => void;
+  onPageSizeChange: (value: string) => void;
+  onPreview: () => void;
+  onProbe: () => void;
+  page: string;
+  pageSize: string;
+  result: YouzhaoOperationResult | null;
+  rows: ImportPreviewRow[];
+  sessionStatus: string;
+  summary: PreviewSummary;
+}) {
+  const targetLayerCounts = result?.targetLayerCounts ?? {};
+
+  return (
+    <section className="min-w-0 rounded-card border border-line bg-panel p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">优招采集</h2>
+          <p className="mt-1 text-sm text-textSubtle">youzhao / web</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loading === "youzhao-open"}
+            onClick={onOpen}
+            type="button"
+          >
+            {loading === "youzhao-open" ? (
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            ) : (
+              <Play aria-hidden="true" className="h-4 w-4" />
+            )}
+            <span>打开优招登录</span>
+          </button>
+          <button
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loading === "youzhao-check"}
+            onClick={onCheck}
+            type="button"
+          >
+            {loading === "youzhao-check" ? (
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw aria-hidden="true" className="h-4 w-4" />
+            )}
+            <span>检查登录状态</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <label className="grid gap-1 text-sm">
+          <span className="text-textSubtle">城市</span>
+          <input
+            className="h-10 rounded-md border border-line bg-white px-3 outline-none focus:border-zinc-400"
+            onChange={(event) => onCityChange(event.target.value)}
+            placeholder="上海"
+            value={city}
+          />
+        </label>
+        <NumberField label="起始页" max={9999} min={1} onChange={onPageChange} value={page} />
+        <NumberField label="每页数量" max={50} min={1} onChange={onPageSizeChange} value={pageSize} />
+        <NumberField label="采集数量" max={100} min={20} onChange={onLimitChange} value={limit} />
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={loading === "youzhao-probe"}
+          onClick={onProbe}
+          type="button"
+        >
+          {loading === "youzhao-probe" ? (
+            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+          ) : (
+            <Database aria-hidden="true" className="h-4 w-4" />
+          )}
+          <span>探测接口</span>
+        </button>
+        <button
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={loading === "youzhao-preview"}
+          onClick={onPreview}
+          type="button"
+        >
+          {loading === "youzhao-preview" ? (
+            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+          ) : (
+            <ClipboardPaste aria-hidden="true" className="h-4 w-4" />
+          )}
+          <span>生成预览</span>
+        </button>
+        <button
+          className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          disabled={loading === "youzhao-import" || importableCount === 0}
+          onClick={onImport}
+          type="button"
+        >
+          {loading === "youzhao-import" ? (
+            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+          ) : (
+            <Upload aria-hidden="true" className="h-4 w-4" />
+          )}
+          <span>导入 Clean Table</span>
+        </button>
+      </div>
+
+      {errorMsg ? <ErrorBox message={errorMsg} /> : null}
+
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <ResultPill label="登录状态" value={sessionStatus} tone="text-slate-800" />
+        <ResultPill label="请求条数" value={result?.rawReturned ?? result?.returned ?? 0} tone="text-slate-800" />
+        <ResultPill label="招聘中" value={(result?.rawReturned ?? 0) - (result?.filteredNonRecruiting ?? 0)} tone="text-emerald-700" />
+        <ResultPill label="过滤" value={result?.filteredNonRecruiting ?? 0} tone="text-slate-600" />
+        <ResultPill label="可导入" value={summary.valid} tone="text-emerald-700" />
+        <ResultPill label="重复" value={summary.duplicate} tone="text-slate-600" />
+        <ResultPill label="待更新" value={summary.update_candidate} tone="text-blue-700" />
+        <ResultPill label="无效" value={summary.invalid} tone="text-red-700" />
+      </div>
+
+      {Object.keys(targetLayerCounts).length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2 text-sm">
+          {Object.entries(targetLayerCounts).map(([layer, count]) => (
+            <ResultPill key={layer} label={layer} value={count} tone="text-slate-800" />
+          ))}
+        </div>
+      ) : null}
+
+      {typeof result?.inserted === "number" ? (
+        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-5">
+          <ResultPill label="新增" value={result.inserted} tone="text-emerald-700" />
+          <ResultPill label="更新" value={result.updated ?? 0} tone="text-blue-700" />
+          <ResultPill label="重复" value={result.skippedDuplicate ?? 0} tone="text-slate-600" />
+          <ResultPill label="无效" value={result.skippedInvalid ?? 0} tone="text-red-700" />
+          <ResultPill label="跳过" value={result.skippedOther ?? 0} tone="text-slate-600" />
+        </div>
+      ) : null}
+
+      <PreviewTable rows={rows} />
+    </section>
+  );
+}
+
+function NumberField({
+  label,
+  max,
+  min,
+  onChange,
+  value,
+}: {
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1 text-sm">
+      <span className="text-textSubtle">{label}</span>
+      <input
+        className="h-10 rounded-md border border-line bg-white px-3 outline-none focus:border-zinc-400"
+        max={max}
+        min={min}
+        onChange={(event) => onChange(event.target.value)}
+        type="number"
+        value={value}
+      />
+    </label>
+  );
+}
+
 function ImportPanel({
   children,
   errorMsg,
@@ -719,7 +1088,7 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
         <h2 className="text-base font-semibold">识别预览</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1180px] border-collapse text-left text-sm">
           <thead className="bg-tableHead text-textSubtle">
             <tr>
               {[
@@ -732,6 +1101,7 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
                 "薪资",
                 "福利",
                 "备注",
+                "目标图层",
                 "状态",
                 "错误 / 警告",
               ].map((column) => (
@@ -744,7 +1114,7 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-5 text-textWeak" colSpan={11}>
+                <td className="px-4 py-5 text-textWeak" colSpan={12}>
                   暂无预览
                 </td>
               </tr>
@@ -760,6 +1130,7 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
                   <td className="px-4 py-3">{row.mapped.salary || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.welfare || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.remark || "-"}</td>
+                  <td className="px-4 py-3">{row.targetLayer || "-"}</td>
                   <td className="px-4 py-3">
                     <StatusBadge status={row.status} />
                   </td>

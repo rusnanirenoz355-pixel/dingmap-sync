@@ -636,3 +636,59 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 1. 用脱敏数据人工走一遍导入、管理编辑、软删除、导出链路。
 2. 若需要恢复已删除数据，单独开 Task 006 或后续任务卡。
 3. Task 004 + Task 005 稳定后，统一处理 PR / merge 顺序。
+
+## 任务卡 007-A：优招网页 API 探测与小批量导入 Clean Table
+
+### 当前状态
+
+已完成 Task 007-A1 / A2 自动化实现。A1 提交为 `58e2f21`，提供优招 API probe / preview、字段映射和公共 import pipeline 接入。A2 改为 Playwright persistent context 人工登录方案，解决 `hr.qingz.xyz` Cookie 不会自动发送给 localhost Dashboard API 的问题。
+
+### 已完成
+
+* 新增 `packages/sources/youzhao/`，负责优招 API 参数、响应结构、字段映射和业务线目标图层统计。
+* 公共 import pipeline 支持 `source = youzhao`、`originType = web`。
+* 新增 `packages/browser-controller/youzhao-session.ts`，使用 `data/browser-profile/youzhao/` 打开 persistent context 登录窗口。
+* 新增 `packages/db/youzhao-import.ts`，`preview` / `import` 均服务端重新采集，`import` 只接收采集参数并调用 `importCleanMarkers()`。
+* 新增 API：
+  * `POST /api/youzhao/session/open`
+  * `GET /api/youzhao/session/check`
+  * `POST /api/youzhao/probe`
+  * `POST /api/youzhao/preview`
+  * `POST /api/youzhao/import`
+* Dashboard 新增“优招采集”面板：登录、检查、单城市参数、探测、预览、导入、结果摘要和目标图层统计。
+* Preview 表新增目标图层显示。
+* 对 `source = youzhao` 的 Task 003 导出内容做专属映射，七列表头不变。
+
+### 隐私和边界
+
+* 不要求用户复制 cookie / token。
+* 不保存账号、密码、cookie、token、localStorage、sessionStorage。
+* `data/browser-profile/`、`data/youzhao/`、`data/temp/`、`*.har` 已由 `.gitignore` 覆盖。
+* 未执行全量抓取，未提交真实优招响应、截图、HAR、DB 或导出文件。
+
+### 不做范围确认
+
+* 不跑完整 9858 条。
+* 不遍历多个城市。
+* 不做小程序采集。
+* 不做高并发或定时任务。
+* 不绕过验证码或风控。
+* 不自动上传钉图。
+* 不做按城市 / 图层拆分 Excel，该项留到 A3。
+
+### 新增 / 更新测试
+
+* `packages/browser-controller/youzhao-session.test.ts`
+* `packages/db/youzhao-import.test.ts`
+* `apps/dashboard/app/api/youzhao/youzhao-routes.test.ts`
+* `packages/sources/youzhao/client.test.ts`
+* `packages/sources/youzhao/mapper.test.ts`
+* `packages/dingmap/export-template.test.ts`
+* `packages/db/import-clean-markers.test.ts`
+* `packages/sources/import-pipeline/preview.test.ts`
+
+### 当前风险
+
+* 真实 smoke 需要用户在优招窗口手动登录后执行；当前自动化测试使用合成响应。
+* 优招接口真实 schema 若变化，会返回 `schema_changed`，需要按实际响应更新 mapper。
+* A2 不做 A3 的城市 / 图层拆分 Excel。

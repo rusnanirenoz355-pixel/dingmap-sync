@@ -73,5 +73,36 @@ describe("dingmap export template", () => {
 
     expect(row["字段二"]).toBe("");
   });
+
+  it("maps youzhao clean markers to the fixed DingMap import fields", () => {
+    const syntheticPhone = ["199", "0000", "0000"].join("");
+    const row = mapCleanMarkerToDingmapImportRow({
+      source: "youzhao",
+      sourceId: "site-1:job-a",
+      siteName: "Synthetic Site",
+      address: "Synthetic Road",
+      longitude: null,
+      latitude: null,
+      stationManager: "Manager A",
+      phone: syntheticPhone,
+      jobTitle: "Synthetic Job",
+      salary: "Synthetic salary",
+      welfare: "Synthetic welfare",
+      remark: "Synthetic settlement",
+      originType: "web",
+      syncAction: "create",
+      syncStatus: "pending",
+    });
+
+    expect(row).toEqual({
+      标记名称: "Synthetic Site",
+      详细地址: "Synthetic Road",
+      经度: "",
+      纬度: "",
+      备注: "【岗位名称】\nSynthetic Job\n\n【薪资方案】\nSynthetic salary\n\n【新人政策】\nSynthetic welfare",
+      字段一: `Manager A ${syntheticPhone}`,
+      字段二: "Synthetic settlement",
+    });
+  });
 });
 
