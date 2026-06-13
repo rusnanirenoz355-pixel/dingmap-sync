@@ -40,7 +40,11 @@ describe("youzhao persistent session", () => {
     });
     expect(adapter.launchPersistentContext).toHaveBeenCalledWith(
       expect.stringContaining(join("data", "browser-profile", "youzhao")),
-      expect.objectContaining({ headless: false }),
+      expect.objectContaining({
+        args: expect.arrayContaining(["--start-maximized"]),
+        headless: false,
+        viewport: null,
+      }),
     );
     expect(page.goto).toHaveBeenCalledWith(
       YOUZHAO_LOGIN_URL,
@@ -246,6 +250,133 @@ describe("youzhao persistent session", () => {
     });
     expect(JSON.stringify(result)).not.toContain(syntheticSecret);
     expect(context.request.get).not.toHaveBeenCalled();
+  });
+
+  it("opens job management job list to capture the native positions auth header", async () => {
+    const handlers: Partial<Record<"request" | "response", (event: unknown) => void>> = {};
+    const page = {
+      url: () => YOUZHAO_LOGIN_URL,
+      bringToFront: vi.fn(async () => undefined),
+      goto: vi.fn(async () => undefined),
+      off: vi.fn((event: "request" | "response") => {
+        delete handlers[event];
+      }),
+      on: vi.fn((event: "request" | "response", handler: (event: unknown) => void) => {
+        handlers[event] = handler;
+      }),
+      reload: vi.fn(async () => undefined),
+      evaluate: vi.fn(async (_pageFunction, arg) => {
+        if ("action" in arg && arg.action === "open-job-list") {
+          handlers.request?.({
+            headers: () => ({ accept: "application/json", "x-token": "redacted" }),
+            method: () => "GET",
+            url: () => "https://hr.qingz.xyz/api/positions?page=1&status=1",
+          });
+          handlers.response?.({
+            status: () => 200,
+            url: () => "https://hr.qingz.xyz/api/positions?page=1&status=1",
+          });
+          return true;
+        }
+        return {
+          status: 200,
+          body: JSON.stringify({ data: [], pagination: { total: 0 } }),
+          headers: { "content-type": "application/json" },
+          diagnostics: {
+            authenticatedFetchHttpStatus: 200,
+            authHeaderNames: ["x-token"],
+            authStorageKeyUsed: "token",
+            bareFetchHttpStatus: 401,
+            businessPageVisible: true,
+            localStorageKeys: ["token"],
+            pagePathname: "/push/records",
+            sessionStorageKeys: [],
+            tokenStayedInPage: true,
+          },
+        };
+      }),
+    };
+    const context = {
+      pages: () => [page],
+      newPage: vi.fn(),
+      request: {
+        get: vi.fn(),
+      },
+    };
+    const adapter = {
+      launchPersistentContext: vi.fn(async () => context),
+    };
+
+    await openYouzhaoLoginSession({ adapter });
+    const result = await checkYouzhaoLoginSession({}, { fetchImpl: fetchWithYouzhaoSession });
+
+    expect(result.status).toBe("authenticated");
+    expect(page.evaluate).toHaveBeenCalledWith(expect.any(Function), { action: "open-job-list" });
+    expect(result.diagnostics?.nativePositionsRequest).toMatchObject({
+      authHeaderNames: ["x-token"],
+      pathname: "/api/positions",
+      queryParamNames: ["page", "status"],
+    });
+  });
+
+  it("sanitizes job-list navigation candidates before returning diagnostics", async () => {
+    const page = {
+      url: () => YOUZHAO_LOGIN_URL,
+      bringToFront: vi.fn(async () => undefined),
+      goto: vi.fn(async () => undefined),
+      off: vi.fn(),
+      on: vi.fn(),
+      reload: vi.fn(async () => undefined),
+      evaluate: vi.fn(async (_pageFunction, arg) => {
+        if ("action" in arg && arg.action === "open-job-list") {
+          return {
+            candidates: [
+              { tagName: "div", text: "岗位管理SensitiveName手机号岗位名称" },
+              { hrefPath: "/push/jobs", tagName: "a", text: "anything" },
+              { tagName: "div", text: "SensitiveName手机号真实地址" },
+            ],
+            clicked: true,
+            pathnameAfterClick: "/push/records",
+            positionListVisibleAfterClick: false,
+          };
+        }
+        return {
+          status: 401,
+          body: JSON.stringify({}),
+          headers: { "content-type": "application/json" },
+          diagnostics: {
+            bareFetchHttpStatus: 401,
+            businessPageVisible: true,
+            finalAuthStatus: "auth_mechanism_unknown" as const,
+            localStorageKeys: ["token"],
+            pagePathname: "/push/records",
+            sessionStorageKeys: [],
+            tokenStayedInPage: true,
+          },
+        };
+      }),
+    };
+    const context = {
+      pages: () => [page],
+      newPage: vi.fn(),
+      request: {
+        get: vi.fn(),
+      },
+    };
+    const adapter = {
+      launchPersistentContext: vi.fn(async () => context),
+    };
+
+    await openYouzhaoLoginSession({ adapter });
+    const result = await checkYouzhaoLoginSession({}, { fetchImpl: fetchWithYouzhaoSession });
+
+    expect(result.status).toBe("auth_mechanism_unknown");
+    expect(result.diagnostics?.jobListNavigationCandidates).toEqual([
+      { hrefPath: undefined, role: undefined, tagName: "div", text: "岗位管理" },
+      { hrefPath: "/push/jobs", role: undefined, tagName: "a", text: "jobs-route" },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("SensitiveName");
+    expect(JSON.stringify(result)).not.toContain("手机号真实地址");
   });
 
   it("reports auth_mechanism_unknown when the business page is visible but no auth header can be built", async () => {

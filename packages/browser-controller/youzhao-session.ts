@@ -52,6 +52,29 @@ interface YouzhaoNativeRequestSummary {
   differentFromBareFetchHeaderNames: string[];
 }
 
+interface YouzhaoNativeRequestCapture {
+  jobListNavigationCandidates: YouzhaoNavigationCandidate[];
+  jobListNavigationAttempted: boolean;
+  jobListNavigationClicked: boolean;
+  pathnameAfterClick?: string;
+  positionListVisibleAfterClick?: boolean;
+  request?: YouzhaoNativeRequestSummary;
+}
+
+interface YouzhaoNavigationCandidate {
+  hrefPath?: string;
+  role?: string;
+  tagName: string;
+  text: string;
+}
+
+interface YouzhaoJobListOpenResult {
+  candidates: YouzhaoNavigationCandidate[];
+  clicked: boolean;
+  pathnameAfterClick?: string;
+  positionListVisibleAfterClick?: boolean;
+}
+
 export interface YouzhaoSessionDiagnostics {
   sessionFound: boolean;
   contextClosed: boolean;
@@ -72,6 +95,11 @@ export interface YouzhaoSessionDiagnostics {
   sessionStorageKeys?: string[];
   sensitiveStorageKeyHints?: string[];
   nativePositionsRequest?: YouzhaoNativeRequestSummary;
+  jobListNavigationCandidates?: YouzhaoNavigationCandidate[];
+  jobListNavigationAttempted?: boolean;
+  jobListNavigationClicked?: boolean;
+  jobListPathnameAfterClick?: string;
+  jobListPositionListVisibleAfterClick?: boolean;
   authHeaderNames?: string[];
   authStorageKeyUsed?: string;
   tokenStayedInPage?: boolean;
@@ -104,20 +132,22 @@ interface PageFetchResult {
   diagnostics?: Partial<YouzhaoSessionDiagnostics>;
 }
 
+type YouzhaoPageEvaluateArg =
+  | {
+    path: string;
+    headers: Record<string, string>;
+    nativeAuthHeaderNames: string[];
+  }
+  | { action: "open-job-list" };
+
+type YouzhaoPageEvaluateResult = PageFetchResult | boolean | YouzhaoJobListOpenResult;
+
 export interface YouzhaoPersistentPage {
   bringToFront?: () => Promise<void>;
   evaluate?: (
-    pageFunction: (arg: {
-      path: string;
-      headers: Record<string, string>;
-      nativeAuthHeaderNames: string[];
-    }) => PageFetchResult | Promise<PageFetchResult>,
-    arg: {
-      path: string;
-      headers: Record<string, string>;
-      nativeAuthHeaderNames: string[];
-    },
-  ) => Promise<PageFetchResult>;
+    pageFunction: (arg: YouzhaoPageEvaluateArg) => YouzhaoPageEvaluateResult | Promise<YouzhaoPageEvaluateResult>,
+    arg: YouzhaoPageEvaluateArg,
+  ) => Promise<YouzhaoPageEvaluateResult>;
   goto: (url: string, options?: { waitUntil?: "domcontentloaded"; timeout?: number }) => Promise<unknown>;
   off?: (event: "request" | "response", handler: (event: unknown) => void) => void;
   on?: (event: "request" | "response", handler: (event: unknown) => void) => void;
@@ -131,10 +161,16 @@ export interface YouzhaoPersistentContext {
   request: ContextRequest;
 }
 
+export interface YouzhaoLaunchOptions {
+  args?: string[];
+  headless: boolean;
+  viewport?: null;
+}
+
 export interface YouzhaoSessionAdapter {
   launchPersistentContext: (
     profileDir: string,
-    options: { headless: boolean },
+    options: YouzhaoLaunchOptions,
   ) => Promise<YouzhaoPersistentContext>;
 }
 
@@ -273,12 +309,12 @@ export async function requestYouzhaoApiFromAuthenticatedPage(
   const youzhaoPage = safeFindYouzhaoPage(activeContext);
   if (youzhaoPage?.evaluate) {
     try {
-      const nativePositionsRequest = await captureNativePositionsRequestSummary(youzhaoPage, DEFAULT_TIMEOUT_MS);
+      const nativePositionsCapture = await captureNativePositionsRequestSummary(youzhaoPage, DEFAULT_TIMEOUT_MS);
       const pageResponse = await requestFromYouzhaoPage(
         youzhaoPage,
         input,
         buildPageFetchHeaders(init.headers),
-        nativePositionsRequest?.authHeaderNames ?? [],
+        nativePositionsCapture.request?.authHeaderNames ?? [],
         DEFAULT_TIMEOUT_MS,
       );
       const authStatus = pageResponse.diagnostics?.finalAuthStatus;
@@ -292,7 +328,12 @@ export async function requestYouzhaoApiFromAuthenticatedPage(
         httpStatus: pageResponse.status,
         contentType: headerValue(pageResponse.headers, "content-type"),
         responseUrl: sanitizeUrlPath(pageResponse.url),
-        nativePositionsRequest,
+        nativePositionsRequest: nativePositionsCapture.request,
+        jobListNavigationCandidates: sanitizeNavigationCandidates(nativePositionsCapture.jobListNavigationCandidates),
+        jobListNavigationAttempted: nativePositionsCapture.jobListNavigationAttempted,
+        jobListNavigationClicked: nativePositionsCapture.jobListNavigationClicked,
+        jobListPathnameAfterClick: nativePositionsCapture.pathnameAfterClick,
+        jobListPositionListVisibleAfterClick: nativePositionsCapture.positionListVisibleAfterClick,
       };
       store.lastDiagnostics = diagnostics;
       const responseHeaders = new Headers(pageResponse.headers);
@@ -346,7 +387,11 @@ async function getOrCreateContext(
   adapter: YouzhaoSessionAdapter,
   profileDir: string,
 ): Promise<YouzhaoPersistentContext> {
-  store.activeContext ??= await adapter.launchPersistentContext(profileDir, { headless: false });
+  store.activeContext ??= await adapter.launchPersistentContext(profileDir, {
+    args: ["--start-maximized"],
+    headless: false,
+    viewport: null,
+  });
   return store.activeContext;
 }
 
@@ -364,9 +409,17 @@ async function requestFromYouzhaoPage(
   timeoutMs: number,
 ): Promise<PageFetchResult> {
   const path = toYouzhaoRelativePath(input);
-  return withRequestTimeout(
+  const result = await withRequestTimeout(
     page.evaluate!(
-      async ({ path: requestPath, headers: requestHeaders, nativeAuthHeaderNames: nativeHeaders }) => {
+      async (arg) => {
+        if ("action" in arg) {
+          return false;
+        }
+        const {
+          path: requestPath,
+          headers: requestHeaders,
+          nativeAuthHeaderNames: nativeHeaders,
+        } = arg;
         const text = document.body?.innerText ?? "";
         const pagePathname = window.location.pathname;
         const businessFeatureFlags = {
@@ -476,6 +529,7 @@ async function requestFromYouzhaoPage(
     ),
     timeoutMs,
   );
+  return result as PageFetchResult;
 }
 
 function toYouzhaoRelativePath(input: RequestInfo | URL): string {
@@ -503,12 +557,21 @@ async function withRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Pr
 async function captureNativePositionsRequestSummary(
   page: YouzhaoPersistentPage,
   timeoutMs: number,
-): Promise<YouzhaoNativeRequestSummary | undefined> {
+): Promise<YouzhaoNativeRequestCapture> {
   if (!page.on || !page.off) {
-    return undefined;
+    return {
+      jobListNavigationCandidates: [],
+      jobListNavigationAttempted: false,
+      jobListNavigationClicked: false,
+    };
   }
 
   let requestSummary: YouzhaoNativeRequestSummary | undefined;
+  let jobListOpenResult: YouzhaoJobListOpenResult = {
+    candidates: [],
+    clicked: false,
+  };
+  let jobListNavigationAttempted = false;
   const onRequest = (event: unknown) => {
     const url = callStringMethod(event, "url");
     if (!url || !isPositionsUrl(url)) {
@@ -540,10 +603,239 @@ async function captureNativePositionsRequestSummary(
   try {
     await page.reload?.({ waitUntil: "domcontentloaded", timeout: Math.min(timeoutMs, 5_000) });
     await new Promise((resolve) => setTimeout(resolve, 800));
-    return requestSummary;
+    if (!requestSummary) {
+      jobListNavigationAttempted = true;
+      jobListOpenResult = await openYouzhaoJobList(page, timeoutMs);
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    }
+    return {
+      jobListNavigationCandidates: jobListOpenResult.candidates,
+      jobListNavigationAttempted,
+      jobListNavigationClicked: jobListOpenResult.clicked,
+      pathnameAfterClick: jobListOpenResult.pathnameAfterClick,
+      positionListVisibleAfterClick: jobListOpenResult.positionListVisibleAfterClick,
+      request: requestSummary,
+    };
   } finally {
     page.off("request", onRequest);
     page.off("response", onResponse);
+  }
+}
+
+async function openYouzhaoJobList(
+  page: YouzhaoPersistentPage,
+  timeoutMs: number,
+): Promise<YouzhaoJobListOpenResult> {
+  if (!page.evaluate) {
+    return {
+      candidates: [],
+      clicked: false,
+    };
+  }
+  try {
+    const result = await withRequestTimeout(
+      page.evaluate(
+        async (arg) => {
+          if (!("action" in arg) || arg.action !== "open-job-list") {
+            return {
+              candidates: [],
+              clicked: false,
+            };
+          }
+
+          const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+          const isVisible = (element: Element): boolean => {
+            const rect = (element as HTMLElement).getBoundingClientRect?.();
+            return Boolean(rect && rect.width > 0 && rect.height > 0);
+          };
+          const sanitizeHrefPath = (href: string | null): string | undefined => {
+            if (!href) {
+              return undefined;
+            }
+            try {
+              return new URL(href, window.location.origin).pathname;
+            } catch {
+              return undefined;
+            }
+          };
+          const compactText = (value: string | null | undefined): string => {
+            return (value ?? "").replace(/\s+/g, "").slice(0, 40);
+          };
+          const safeCandidateText = (element: Element, hrefPath?: string): string => {
+            const haystack = [
+              compactText(element.textContent),
+              compactText(element.getAttribute("aria-label")),
+              compactText(element.getAttribute("title")),
+              hrefPath ?? "",
+            ].join(" ");
+            if (haystack.includes("岗位列表")) {
+              return "岗位列表";
+            }
+            if (haystack.includes("岗位管理")) {
+              return "岗位管理";
+            }
+            if (haystack.includes("职位列表")) {
+              return "职位列表";
+            }
+            if (haystack.includes("职位管理")) {
+              return "职位管理";
+            }
+            if (/positions?/i.test(haystack)) {
+              return "positions-route";
+            }
+            if (/jobs?/i.test(haystack)) {
+              return "jobs-route";
+            }
+            return "";
+          };
+          const summarizeCandidate = (element: Element): {
+            hrefPath?: string;
+            role?: string;
+            tagName: string;
+            text: string;
+          } => {
+            const actionable = getActionableElement(element) ?? element as HTMLElement;
+            const hrefPath = sanitizeHrefPath(actionable.getAttribute("href"));
+            return {
+              hrefPath,
+              role: actionable.getAttribute("role") ?? undefined,
+              tagName: actionable.tagName.toLowerCase(),
+              text: safeCandidateText(element, hrefPath),
+            };
+          };
+          const getActionableElement = (element: Element): HTMLElement | null => {
+            return element.closest(
+              "a,button,[role='button'],[role='menuitem'],li,.ant-menu-item,.ant-menu-submenu-title",
+            ) as HTMLElement | null;
+          };
+          const menuCandidates = (): Element[] => {
+            return Array.from(document.querySelectorAll("button,a,li,span,div,[role='menuitem']"))
+              .filter((element) => {
+                if (!isVisible(element)) {
+                  return false;
+                }
+                const text = compactText(element.textContent);
+                const ariaLabel = compactText(element.getAttribute("aria-label"));
+                const title = compactText(element.getAttribute("title"));
+                const hrefPath = sanitizeHrefPath((element as HTMLElement).getAttribute("href")) ?? "";
+                return Boolean(safeCandidateText(element, hrefPath)) &&
+                  (text.length <= 24 || Boolean(hrefPath) || ["li", "a", "button"].includes(element.tagName.toLowerCase())) &&
+                  /岗位管理|岗位列表|职位管理|职位列表|position|positions|job|jobs/i.test(`${text} ${ariaLabel} ${title} ${hrefPath}`);
+              });
+          };
+          const clickByText = async (label: string): Promise<boolean> => {
+            const compactLabel = label.replace(/\s+/g, "");
+            const candidates = Array.from(document.querySelectorAll("button,a,li,span,div,[role='menuitem']"))
+              .filter((element) => {
+                if (!isVisible(element)) {
+                  return false;
+                }
+                const text = compactText(element.textContent);
+                const ariaLabel = compactText(element.getAttribute("aria-label"));
+                const title = compactText(element.getAttribute("title"));
+                return text.includes(compactLabel) || ariaLabel.includes(compactLabel) || title.includes(compactLabel);
+              })
+              .sort((left, right) => {
+                const leftText = compactText(left.textContent);
+                const rightText = compactText(right.textContent);
+                const leftExact = leftText === compactLabel ? 0 : 1;
+                const rightExact = rightText === compactLabel ? 0 : 1;
+                if (leftExact !== rightExact) {
+                  return leftExact - rightExact;
+                }
+                const scoreActionable = (element: Element): number => {
+                  const target = getActionableElement(element) ?? element as HTMLElement;
+                  const tagName = target.tagName.toLowerCase();
+                  const role = target.getAttribute("role") ?? "";
+                  if (role === "menuitem" || target.classList.contains("ant-menu-submenu-title")) {
+                    return 0;
+                  }
+                  if (tagName === "li" || target.classList.contains("ant-menu-item")) {
+                    return 1;
+                  }
+                  if (tagName === "a" || tagName === "button") {
+                    return 2;
+                  }
+                  return 3;
+                };
+                const leftScore = scoreActionable(left);
+                const rightScore = scoreActionable(right);
+                if (leftScore !== rightScore) {
+                  return leftScore - rightScore;
+                }
+                return leftText.length - rightText.length;
+              });
+            const clickedTargets = new Set<string>();
+            for (const matched of candidates) {
+              const text = compactText(matched.textContent);
+              const ariaLabel = compactText(matched.getAttribute("aria-label"));
+              const title = compactText(matched.getAttribute("title"));
+              if (!text.includes(compactLabel) && !ariaLabel.includes(compactLabel) && !title.includes(compactLabel)) {
+                continue;
+              }
+              const target = getActionableElement(matched) ?? matched as HTMLElement;
+              const rect = target.getBoundingClientRect();
+              const targetKey = `${target.tagName}:${target.getAttribute("role") ?? ""}:${rect.left}:${rect.top}:${compactText(target.textContent)}`;
+              if (clickedTargets.has(targetKey)) {
+                continue;
+              }
+              clickedTargets.add(targetKey);
+              target.scrollIntoView?.({ block: "center", inline: "nearest" });
+              target.click();
+              await sleep(700);
+              if (label !== "岗位管理" || (document.body?.innerText ?? "").includes("岗位列表")) {
+                return true;
+              }
+            }
+            return clickedTargets.size > 0;
+          };
+          const clickByHrefHint = async (): Promise<boolean> => {
+            const candidates = menuCandidates()
+              .map((element) => ({ element, summary: summarizeCandidate(element) }))
+              .filter(({ summary }) => /position|positions|job|jobs|岗位|职位/i.test(`${summary.hrefPath ?? ""} ${summary.text}`))
+              .sort((left, right) => {
+                const leftHasList = /list|列表/i.test(`${left.summary.hrefPath ?? ""} ${left.summary.text}`) ? 0 : 1;
+                const rightHasList = /list|列表/i.test(`${right.summary.hrefPath ?? ""} ${right.summary.text}`) ? 0 : 1;
+                return leftHasList - rightHasList;
+              });
+            const target = candidates
+              .map(({ element }) => getActionableElement(element) ?? element as HTMLElement)
+              .find((element) => isVisible(element));
+            target?.scrollIntoView?.({ block: "center", inline: "nearest" });
+            target?.click();
+            if (target) {
+              await sleep(900);
+            }
+            return Boolean(target);
+          };
+
+          const managementClicked = await clickByText("岗位管理");
+          const listClicked = await clickByText("岗位列表");
+          const hrefClicked = listClicked ? false : await clickByHrefHint();
+          const textAfterClick = document.body?.innerText ?? "";
+          return {
+            candidates: menuCandidates().map(summarizeCandidate).slice(0, 20),
+            clicked: managementClicked || listClicked || hrefClicked,
+            pathnameAfterClick: window.location.pathname,
+            positionListVisibleAfterClick: textAfterClick.includes("岗位列表"),
+          };
+        },
+        { action: "open-job-list" },
+      ),
+      Math.min(timeoutMs, 4_000),
+    );
+    if (typeof result === "boolean") {
+      return {
+        candidates: [],
+        clicked: result,
+      };
+    }
+    return result as YouzhaoJobListOpenResult;
+  } catch {
+    return {
+      candidates: [],
+      clicked: false,
+    };
   }
 }
 
@@ -554,6 +846,46 @@ function isPositionsUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function sanitizeNavigationCandidates(candidates: YouzhaoNavigationCandidate[]): YouzhaoNavigationCandidate[] {
+  const sanitized: YouzhaoNavigationCandidate[] = [];
+  for (const candidate of candidates) {
+    const text = safeNavigationText(candidate.text, candidate.hrefPath);
+    if (!text) {
+      continue;
+    }
+    sanitized.push({
+      hrefPath: candidate.hrefPath,
+      role: candidate.role,
+      tagName: candidate.tagName,
+      text,
+    });
+  }
+  return sanitized;
+}
+
+function safeNavigationText(text: string, hrefPath: string | undefined): string {
+  const haystack = `${text} ${hrefPath ?? ""}`;
+  if (haystack.includes("岗位列表")) {
+    return "岗位列表";
+  }
+  if (haystack.includes("岗位管理")) {
+    return "岗位管理";
+  }
+  if (haystack.includes("职位列表")) {
+    return "职位列表";
+  }
+  if (haystack.includes("职位管理")) {
+    return "职位管理";
+  }
+  if (/positions?/i.test(haystack)) {
+    return "positions-route";
+  }
+  if (/jobs?/i.test(haystack)) {
+    return "jobs-route";
+  }
+  return "";
 }
 
 function callStringMethod(target: unknown, method: string): string {
