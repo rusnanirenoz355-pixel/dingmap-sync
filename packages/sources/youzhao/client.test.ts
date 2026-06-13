@@ -64,6 +64,8 @@ describe("youzhao API client", () => {
   it("maps 401, 403, timeout, and bad schemas to explicit statuses", async () => {
     await expectStatus(jsonResponse({}, 401), "requires_login");
     await expectStatus(jsonResponse({}, 403), "forbidden");
+    await expectStatus(jsonResponse({}, 400), "failed");
+    await expectStatus(htmlResponse("<html><form><input type=\"password\" /></form></html>"), "requires_login");
     await expectStatus(jsonResponse({ unexpected: true }, 200), "schema_changed");
 
     const timeoutFetch = vi.fn(
@@ -121,5 +123,12 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
+  });
+}
+
+function htmlResponse(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/html" },
   });
 }

@@ -82,6 +82,12 @@ interface DingmapExportResult {
 interface YouzhaoOperationResult {
   status: string;
   authenticated?: boolean;
+  diagnostics?: {
+    requestMode?: string;
+    httpStatus?: number;
+    contentType?: string;
+    finalStatus?: string;
+  };
   total?: number | null;
   returned?: number;
   rawReturned?: number;
@@ -419,19 +425,20 @@ export default function DashboardPage() {
 
   async function handleYouzhaoCheck() {
     setYouzhaoErrorMsg(null);
+    setYouzhaoSessionStatus("checking...");
     setLoading("youzhao-check");
     try {
-      const params = new URLSearchParams({ city: youzhaoCity });
-      const response = await fetch(`/api/youzhao/session/check?${params.toString()}`, {
+      const response = await fetch("/api/youzhao/session/check", {
         cache: "no-store",
       });
       const data = (await response.json()) as YouzhaoOperationResult;
-      if (!response.ok && data.status !== "requires_login" && data.status !== "forbidden") {
-        throw new Error(data.error ?? data.message ?? "检查优招登录状态失败。");
-      }
       setYouzhaoSessionStatus(data.status);
       setYouzhaoResult(data);
+      if (!response.ok || data.status !== "authenticated") {
+        setYouzhaoErrorMsg(formatYouzhaoFailure("Login status check failed", response, data, "session-check"));
+      }
     } catch (error) {
+      setYouzhaoSessionStatus("failed");
       setYouzhaoErrorMsg(error instanceof Error ? error.message : "检查优招登录状态失败。");
     } finally {
       setLoading(null);
@@ -474,7 +481,8 @@ export default function DashboardPage() {
       });
       const data = (await response.json()) as YouzhaoOperationResult;
       if (!response.ok) {
-        throw new Error(data.error ?? data.message ?? "优招采集失败。");
+        setYouzhaoResult(data);
+        throw new Error(formatYouzhaoFailure("Youzhao collection failed", response, data, stageForYouzhaoLoading(loadingState)));
       }
       setYouzhaoResult(data);
       return data;
@@ -781,6 +789,45 @@ export default function DashboardPage() {
       </div>
     </main>
   );
+}
+
+function formatYouzhaoFailure(
+  prefix: string,
+  response: Response,
+  data: YouzhaoOperationResult,
+  stage: string,
+): string {
+  const diagnostics = data.diagnostics;
+  const status = data.status ?? diagnostics?.finalStatus ?? "failed";
+  const lines = [
+    `${prefix}: ${status}`,
+    `HTTP status: ${diagnostics?.httpStatus ?? response.status}`,
+    `Request mode: ${diagnostics?.requestMode ?? "unknown"}`,
+    `Stage: ${stage}`,
+  ];
+  if (diagnostics?.contentType) {
+    lines.push(`Content-Type: ${diagnostics.contentType}`);
+  }
+  if (data.message) {
+    lines.push(`Message: ${data.message}`);
+  }
+  if (data.error && data.error !== data.message) {
+    lines.push(`Error: ${data.error}`);
+  }
+  return lines.join("\n");
+}
+
+function stageForYouzhaoLoading(loadingState: Exclude<LoadingState, null>): string {
+  if (loadingState === "youzhao-probe") {
+    return "probe";
+  }
+  if (loadingState === "youzhao-preview") {
+    return "preview";
+  }
+  if (loadingState === "youzhao-import") {
+    return "import";
+  }
+  return loadingState;
 }
 
 function YouzhaoPanel({
@@ -1283,7 +1330,7 @@ function StatusPill({
 
 function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <div className="mt-3 whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
       {message}
     </div>
   );

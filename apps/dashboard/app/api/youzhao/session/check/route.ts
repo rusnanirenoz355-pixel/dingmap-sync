@@ -4,10 +4,10 @@ import { httpStatusForYouzhaoStatus } from "../../params";
 export const runtime = "nodejs";
 
 export async function GET(request: Request): Promise<Response> {
+  void request;
   try {
-    const city = new URL(request.url).searchParams.get("city") ?? "";
     const result = await checkYouzhaoLoginSession(
-      { city },
+      {},
       { fetchImpl: fetchWithYouzhaoSession },
     );
     return Response.json(result, { status: httpStatusForYouzhaoStatus(result.status) });

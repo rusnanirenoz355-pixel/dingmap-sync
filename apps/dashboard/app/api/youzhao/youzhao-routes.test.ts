@@ -26,6 +26,8 @@ vi.mock("@dingmap-sync/db/youzhao-import", () => ({
 }));
 
 const emptySummary = { valid: 0, invalid: 0, duplicate: 0, update_candidate: 0 };
+const shanghai = "\u4e0a\u6d77";
+const meituanLayer = "\u7f8e\u56e2\u70b9";
 
 describe("youzhao API routes", () => {
   beforeEach(() => {
@@ -50,26 +52,38 @@ describe("youzhao API routes", () => {
     expect(json).toMatchObject({ status: "opened", authenticated: false });
   });
 
-  it("checks login status through the persistent context", async () => {
+  it("checks login status without trusting the dashboard city field", async () => {
     vi.mocked(checkYouzhaoLoginSession).mockResolvedValue({
       status: "requires_login",
       authenticated: false,
+      diagnostics: {
+        sessionFound: true,
+        contextClosed: false,
+        pageCount: 1,
+        youzhaoPageFound: true,
+        youzhaoPageUrl: "/push/records",
+        requestMode: "page-fetch",
+        httpStatus: 401,
+        contentType: "application/json",
+        finalStatus: "requires_login",
+      },
     });
 
     const response = await sessionCheckGet(
-      new Request("http://localhost/api/youzhao/session/check?city=上海"),
+      new Request(`http://localhost/api/youzhao/session/check?city=${encodeURIComponent(shanghai)}`),
     );
-    const json = (await response.json()) as { status: string };
+    const json = (await response.json()) as { status: string; diagnostics?: { requestMode?: string } };
 
     expect(response.status).toBe(401);
     expect(json.status).toBe("requires_login");
+    expect(json.diagnostics?.requestMode).toBe("page-fetch");
     expect(checkYouzhaoLoginSession).toHaveBeenCalledWith(
-      { city: "上海" },
+      {},
       expect.objectContaining({ fetchImpl: fetchWithYouzhaoSession }),
     );
   });
 
-  it("uses the authenticated context for probe and preview", async () => {
+  it("uses the authenticated session fetch for probe and preview", async () => {
     vi.mocked(fetchWithYouzhaoSession).mockResolvedValue(
       jsonResponse({
         data: [],
@@ -80,7 +94,7 @@ describe("youzhao API routes", () => {
       status: "success",
       method: "GET",
       endpoint: "/api/positions",
-      params: { city: "上海", page: "1", pageSize: "20", status: "1" },
+      params: { city: shanghai, page: "1", pageSize: "20", status: "1" },
       total: 0,
       items: [],
       rawReturned: 0,
@@ -91,15 +105,15 @@ describe("youzhao API routes", () => {
       targetLayerCounts: {},
     });
 
-    const probeResponse = await probePost(jsonRequest({ city: "上海", limit: 20 }));
-    const previewResponse = await previewPost(jsonRequest({ city: "上海", limit: 20 }));
+    const probeResponse = await probePost(jsonRequest({ city: shanghai, limit: 20 }));
+    const previewResponse = await previewPost(jsonRequest({ city: shanghai, limit: 20 }));
 
     expect(probeResponse.status).toBe(200);
     expect(previewResponse.status).toBe(200);
     expect(fetchWithYouzhaoSession).toHaveBeenCalled();
     expect(previewYouzhaoPositionsForImport).toHaveBeenCalledTimes(1);
     expect(previewYouzhaoPositionsForImport).toHaveBeenCalledWith(
-      { city: "上海", limit: 20 },
+      { city: shanghai, limit: 20 },
       expect.objectContaining({ fetchImpl: fetchWithYouzhaoSession }),
     );
   });
@@ -109,7 +123,7 @@ describe("youzhao API routes", () => {
       status: "success",
       method: "GET",
       endpoint: "/api/positions",
-      params: { city: "上海", page: "1", pageSize: "20", status: "1" },
+      params: { city: shanghai, page: "1", pageSize: "20", status: "1" },
       total: 1,
       items: [],
       rawReturned: 1,
@@ -117,7 +131,7 @@ describe("youzhao API routes", () => {
       rawRows: [],
       rows: [],
       summary: { valid: 1, invalid: 0, duplicate: 0, update_candidate: 0 },
-      targetLayerCounts: { 美团点: 1 },
+      targetLayerCounts: { [meituanLayer]: 1 },
       inserted: 1,
       updated: 0,
       skippedDuplicate: 0,
@@ -128,7 +142,7 @@ describe("youzhao API routes", () => {
     });
 
     const response = await importPost(jsonRequest({
-      city: "上海",
+      city: shanghai,
       page: 1,
       pageSize: 20,
       limit: 20,
@@ -139,7 +153,7 @@ describe("youzhao API routes", () => {
     expect(response.status).toBe(200);
     expect(json.inserted).toBe(1);
     expect(importYouzhaoPositions).toHaveBeenCalledWith(
-      { city: "上海", page: 1, pageSize: 20, limit: 20 },
+      { city: shanghai, page: 1, pageSize: 20, limit: 20 },
       expect.objectContaining({ fetchImpl: fetchWithYouzhaoSession }),
     );
   });

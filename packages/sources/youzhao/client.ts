@@ -33,6 +33,12 @@ export interface YouzhaoClientOptions {
   timeoutMs?: number;
 }
 
+export interface YouzhaoRequestDiagnostics {
+  requestMode?: string;
+  httpStatus?: number;
+  contentType?: string;
+}
+
 export interface YouzhaoFetchResult {
   status: YouzhaoApiStatus;
   method: "GET";
@@ -42,6 +48,7 @@ export interface YouzhaoFetchResult {
   items: YouzhaoRawRow[];
   rawReturned: number;
   filteredNonRecruiting: number;
+  diagnostics?: YouzhaoRequestDiagnostics;
   message?: string;
 }
 
@@ -62,6 +69,7 @@ export interface YouzhaoAccessCheckResult {
   endpoint: string;
   params: Record<string, string>;
   total: number | null;
+  diagnostics?: YouzhaoRequestDiagnostics;
   message?: string;
 }
 
@@ -121,11 +129,13 @@ export async function fetchYouzhaoRecruitingJobs(
   let page = query.page;
   let total: number | null = null;
   let lastParams = buildPositionsParams({ ...query, page });
+  let lastDiagnostics: YouzhaoRequestDiagnostics | undefined;
 
   while (collected.length < query.limit) {
     const params = buildPositionsParams({ ...query, page });
     lastParams = params;
     const response = await fetchYouzhaoPage(params, fetchImpl, options);
+    lastDiagnostics = response.diagnostics;
     if (response.status !== "success") {
       return {
         status: response.status,
@@ -136,6 +146,7 @@ export async function fetchYouzhaoRecruitingJobs(
         items: [],
         rawReturned: 0,
         filteredNonRecruiting: 0,
+        diagnostics: response.diagnostics,
         message: response.message,
       };
     }
@@ -160,6 +171,7 @@ export async function fetchYouzhaoRecruitingJobs(
     items: limited,
     rawReturned: limited.length,
     filteredNonRecruiting: mapped.filteredNonRecruiting,
+    diagnostics: lastDiagnostics,
   };
 }
 
@@ -215,6 +227,7 @@ export async function checkYouzhaoPositionsAccess(
     endpoint: YOUZHAO_POSITIONS_ENDPOINT,
     params,
     total: response.total,
+    diagnostics: response.diagnostics,
     message: response.message,
   };
 }
@@ -262,6 +275,7 @@ async function fetchYouzhaoPage(
   status: YouzhaoApiStatus;
   total: number | null;
   items: YouzhaoRawRow[];
+  diagnostics?: YouzhaoRequestDiagnostics;
   message?: string;
 }> {
   const controller = new AbortController();
@@ -275,29 +289,50 @@ async function fetchYouzhaoPage(
       headers: options.headers,
       signal: controller.signal,
     });
+    const contentType = response.headers.get("content-type") ?? "";
+    const diagnostics = buildResponseDiagnostics(response, contentType);
 
     if (response.status === 401) {
-      return { status: "requires_login", total: null, items: [] };
+      return { status: "requires_login", total: null, items: [], diagnostics };
     }
     if (response.status === 403) {
-      return { status: "forbidden", total: null, items: [] };
+      return { status: "forbidden", total: null, items: [], diagnostics };
     }
     if (response.status === 429) {
-      return { status: "blocked", total: null, items: [] };
+      return { status: "blocked", total: null, items: [], diagnostics };
+    }
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location") ?? "";
+      return {
+        status: looksLikeLoginRedirect(location) ? "requires_login" : "failed",
+        total: null,
+        items: [],
+        diagnostics,
+        message: `HTTP ${response.status}`,
+      };
     }
     if (!response.ok) {
-      return { status: "failed", total: null, items: [], message: `HTTP ${response.status}` };
+      return { status: "failed", total: null, items: [], diagnostics, message: `HTTP ${response.status}` };
     }
 
-    const payload = await response.json().catch(() => null);
+    const body = await response.text();
+    if (looksLikeLoginHtml(body, contentType)) {
+      return { status: "requires_login", total: null, items: [], diagnostics };
+    }
+    if (looksLikeHtml(body, contentType)) {
+      return { status: "schema_changed", total: null, items: [], diagnostics };
+    }
+
+    const payload = parseJsonBody(body);
     const parsed = parsePositionsPayload(payload);
     if (!parsed) {
-      return { status: "schema_changed", total: null, items: [] };
+      return { status: "schema_changed", total: null, items: [], diagnostics };
     }
     return {
       status: "success",
       total: parsed.total,
       items: parsed.items,
+      diagnostics,
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
@@ -312,6 +347,34 @@ async function fetchYouzhaoPage(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function parseJsonBody(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+function buildResponseDiagnostics(response: Response, contentType: string): YouzhaoRequestDiagnostics {
+  return {
+    requestMode: response.headers.get("x-dingmap-youzhao-request-mode") ?? undefined,
+    httpStatus: response.status,
+    contentType: contentType || undefined,
+  };
+}
+
+function looksLikeLoginRedirect(location: string): boolean {
+  return /login|signin|auth/i.test(location);
+}
+
+function looksLikeLoginHtml(body: string, contentType: string): boolean {
+  return looksLikeHtml(body, contentType) && /login|signin|password|captcha|<form/i.test(body);
+}
+
+function looksLikeHtml(body: string, contentType: string): boolean {
+  return contentType.toLowerCase().includes("text/html") || /^\s*<!doctype html|^\s*<html/i.test(body);
 }
 
 function parsePositionsPayload(payload: unknown): { items: YouzhaoRawRow[]; total: number | null } | null {
