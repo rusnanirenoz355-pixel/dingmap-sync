@@ -41,6 +41,12 @@ describe("dingmap upload selectors", () => {
     expect(dingmapSelectors.layerMoreButtons).not.toContain("[title*='更多']");
   });
 
+  it("recognizes common DingMap import success toast variants", () => {
+    expect(dingmapSelectors.successIndicators).toContain("text=\u5bfc\u5165\u6210\u529f");
+    expect(dingmapSelectors.successIndicators).toContain("text=\u5bfc\u5165\u5b8c\u6210");
+    expect(dingmapSelectors.successIndicators).toContain("text=\u6570\u636e\u5bfc\u5165\u6210\u529f");
+  });
+
   it("keeps marker color nth fallbacks centralized", () => {
     const yellow = "\u9ec4\u8272";
     const selectors = buildMarkerColorSelectors(yellow, "yellow");

@@ -18,4 +18,12 @@ describe("DingMap coordinate type matching", () => {
     expect(isDingmapMarsCoordinateText("\u767e\u5ea6\u5750\u6807")).toBe(false);
     expect(isDingmapMarsCoordinateText("WGS84")).toBe(false);
   });
+
+  it("rejects concatenated option text instead of treating it as a confirmed value", () => {
+    expect(
+      isDingmapMarsCoordinateText(
+        "\u706b\u661f\u5750\u6807\uff08\u9ad8\u5fb7/\u817e\u8baf/\u8c37\u6b4c\uff09 \u767e\u5ea6\u5750\u6807 \u5927\u5730\u5750\u6807",
+      ),
+    ).toBe(false);
+  });
 });

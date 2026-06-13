@@ -82,6 +82,10 @@ interface DingmapUploadJob extends DingmapUploadJobSnapshot {
   timeoutMs?: number;
 }
 
+interface RunDingmapUploadJobOptions {
+  resumeCurrentDialog?: boolean;
+}
+
 type Store = {
   currentJob: DingmapUploadJob | null;
   sharedSession?: DingmapUploadBrowserSession;
@@ -183,11 +187,19 @@ export function continueDingmapUploadJob(): DingmapUploadJobSnapshot {
     throw new Error("没有可继续的钉图上传任务。");
   }
 
-  if (job.status !== "requires_login") {
+  const canResumeCurrentDialog =
+    (job.status === "blocked" || job.status === "timeout") &&
+    (job.stage === "set-marker-style" ||
+      job.stage === "data-import-dialog" ||
+      job.stage === "open-import-timeout") &&
+    (isDingmapUploadSessionUsable(job.session) || isDingmapUploadSessionUsable(store.sharedSession));
+
+  if (job.status !== "requires_login" && !canResumeCurrentDialog) {
     throw new Error("当前钉图上传任务不需要继续。");
   }
 
-  void runJob(job);
+  job.finishedAt = null;
+  void runJob(job, { resumeCurrentDialog: canResumeCurrentDialog });
   return toSnapshot(job);
 }
 
@@ -257,7 +269,10 @@ function recoverClosedUploadJob(): void {
   writeUploadSyncLog(job);
 }
 
-async function runJob(job: DingmapUploadJob): Promise<void> {
+async function runJob(
+  job: DingmapUploadJob,
+  options: RunDingmapUploadJobOptions = {},
+): Promise<void> {
   try {
     mkdirSync(PROFILE_DIR, { recursive: true });
     mkdirSync(SCREENSHOTS_DIR, { recursive: true });
@@ -272,6 +287,7 @@ async function runJob(job: DingmapUploadJob): Promise<void> {
       session:
         (isDingmapUploadSessionUsable(job.session) ? job.session : undefined) ??
         (isDingmapUploadSessionUsable(store.sharedSession) ? store.sharedSession : undefined),
+      resumeCurrentDialog: options.resumeCurrentDialog,
       onStatus: (status, message, details) => setJobStatus(job, status, message, details?.stage, details),
     });
 

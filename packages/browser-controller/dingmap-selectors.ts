@@ -79,7 +79,14 @@ export const dingmapSelectors = {
     "button:has-text('确认导入')",
     "button:has-text('开始导入')",
   ],
-  successIndicators: ["text=导入成功", "text=上传成功", "text=成功导入", "text=完成"],
+  successIndicators: [
+    "text=导入成功",
+    "text=导入完成",
+    "text=数据导入成功",
+    "text=上传成功",
+    "text=成功导入",
+    "text=完成",
+  ],
   failureIndicators: ["text=导入失败", "text=上传失败", "text=格式错误", "text=校验失败", "text=失败"],
 } as const;
 

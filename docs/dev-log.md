@@ -895,3 +895,68 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 * Clean Table 合并联系人与电话展示，并与预览 / Excel 导入 / 钉图模板导出字段语义对齐。
 * Excel/TSV/字段文本导入补充“交付条件”字段别名。
 * 保持“无经纬度但有站点地址 = 正常”的异常规则及测试覆盖。
+
+## 任务卡 006-H：钉图导入弹窗真实 DOM 诊断与控制器重写
+
+### 当前状态
+
+已基于家里同步后的最新分支继续开发。当前分支为 `codex/task-006-dingmap-auto-upload`，起点包含 `d3cd7a3 fix: stabilize dingmap upload recovery and clean product flow` 与 `6d1547f fix: stabilize dingmap import dialog options`。
+
+### 修复内容
+
+* 新增 `DingMapImportDialogController`，将坐标类型、标记样式、标记大小、文件上传、点击导入、结果读取从主上传流程中拆出。
+* 主流程锁定为：打开导入弹窗 → `setImportOptions()` → `uploadFile()` → `clickImport()` → `readResult()`。
+* `setImportOptions()` 内部严格按：坐标类型 → 标记样式 → 标记大小。
+* 坐标类型和标记大小只读取触发器当前显示值；如果读到多个选项拼接文本，直接 blocked。
+* 标记样式按真实 UI 点击图标按钮后读取颜色块，优先通过 computed background-color 判断颜色，无法判断时使用集中颜色顺序 fallback。
+* 任一导入选项未真实确认时，不选择文件、不点击导入，并保留 blocked stage / screenshot。
+* 新增开发诊断命令 `pnpm dingmap:inspect`，输出真实弹窗 DOM 诊断 JSON/TXT 和截图到 ignored 的 `data/debug/dingmap-upload/` / `data/screenshots/dingmap-upload/`。
+* Dashboard 继续区分目标值和页面确认值，未确认显示“未确认”。
+* 未修改平台颜色映射、文件命名规则、2000 条限制、字段映射、unknown、登录逻辑和账号凭据处理。
+
+### 新增 / 更新测试
+
+* `packages/browser-controller/dingmap-import-dialog.test.ts`
+* `packages/browser-controller/dingmap-coordinate-type.test.ts`
+* `packages/browser-controller/dingmap-marker-style.test.ts`
+* `apps/dashboard/app/dashboard-dingmap-upload-ui.test.ts`
+
+### 当前验证
+
+* `corepack pnpm run check`：通过。
+* 目标测试：通过，4 个测试文件、26 个测试。
+* 完整 `verify`：待最终真实页面验收前执行。
+
+### 当前风险
+
+* 真实钉图页面验收尚未执行；需要使用 `pnpm dingmap:inspect` 停在真实“数据导入”弹窗后采集 DOM。
+* 本轮不会提交 `data/debug/`、`data/screenshots/`、`data/exports/`、`data/browser-profile/` 或任何真实业务数据。
+
+## 任务卡 006-H 追加：导入弹窗诊断稳定性修复
+
+### 修复内容
+
+* 关闭并清理旧 `dingmap:inspect` / `dingmap-inspect` 诊断进程后再继续后续步骤，避免公司电脑残留窗口造成误判。
+* `DingMapImportDialogController.inspect()` 改为顺序读取字段，避免并发诊断时临时 `data-dingmap-control-id` 互相覆盖导致 locator 等待 30 秒。
+* `inspectField()` 在后续读取 options / currentText 前立即固化 trigger 摘要，避免同一元素二次定位覆盖旧临时 id。
+* 标签和控件同在一行或同一容器时，改为用文字 `Range` 计算“坐标类型 / 标记样式 / 标记大小”标签自身矩形，再从文字右侧寻找真实控件。
+* 字段控件定位排除“导入 / 下载导入模板 / 教程”等无关按钮，防止把右下角“导入”误读为标记大小。
+* 原生 `select` 的标记大小切换改为先读取 option 文本并按匹配函数选择 index，标记大小文本匹配失败时仅对该字段 fallback 到第一个“小”选项。
+* 色块正常点击被测试布局遮挡时 fallback 到 `dispatchEvent("click")`，真实浮层仍优先使用普通点击。
+* `pnpm dingmap:inspect` 新增 `--capture-now`，非交互场景可直接采集当前 DOM；检测到 `/user/login` 或未打开“数据导入”弹窗时直接失败，不再输出空诊断。
+* 诊断脚本采集完成或失败后关闭自己打开的 Chrome context，减少残留窗口。
+* 点击“导入”成功后改为从点击时刻重新计时等待钉图结果提示，避免前面打开地图耗时过长导致成功弹窗被误判为 `unknown`。
+* 成功提示 selector 补充“导入完成”“数据导入成功”，提高真实钉图 toast 文案兼容性。
+
+### 当前验证
+
+* `corepack pnpm test -- packages/browser-controller/dingmap-import-dialog.test.ts`：通过，18 个测试。
+* `corepack pnpm test -- packages/browser-controller/dingmap-marker-style.test.ts`：通过，5 个测试。
+* `corepack pnpm test -- packages/browser-controller/dingmap-selectors.test.ts`：通过，6 个测试。
+* `corepack pnpm check`：通过。
+* `corepack pnpm lint`：通过。
+
+### 待验证
+
+* 等用户在自动化 Chrome 中重新登录并打开真实“数据导入”弹窗后，再运行 `pnpm dingmap:inspect -- meituan --capture-now` 采集真实 DOM。
+* 本轮仍未执行真实钉图导入提交，不提交 `data/debug/`、`data/screenshots/`、`data/exports/`、`data/browser-profile/`。

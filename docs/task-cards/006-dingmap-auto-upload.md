@@ -379,3 +379,71 @@ https://dm.dingmap.com/home/map?id=c7b3a5c524864c698416c093843c34c6
 * 无经纬度但有站点地址仍视为正常。
 
 P1 批量永久删除和 P2 完整主题切换暂缓，后续按独立任务处理。
+
+## 006-H 追加：导入弹窗真实 DOM 诊断与控制器重写
+
+### 修复范围
+
+* 新增 `packages/browser-controller/dingmap-import-dialog.ts`，作为“数据导入”弹窗唯一控制器。
+* 控制器包含：`setCoordinateType()`、`setMarkerStyle()`、`setMarkerSize()`、`setImportOptions()`、`uploadFile()`、`clickImport()`、`readResult()`。
+* `runDingmapUploadBrowser()` 改为按固定顺序调用：打开弹窗 → 设置选项 → 上传文件 → 点击导入 → 读取结果。
+* 坐标类型和标记大小只接受当前 trigger 显示值，拒绝“火星坐标 百度坐标 大地坐标”或“小 中 大”这类拼接文本。
+* 标记样式通过图标按钮展开颜色面板；优先用 computed background-color 匹配目标颜色，再 fallback 到集中配置的颜色顺序。
+* 任一选项 blocked 时停止后续动作，不选择文件、不点击导入、不关闭浏览器。
+* 新增 `pnpm dingmap:inspect` 开发诊断命令，诊断输出写入 ignored 本地目录，不暴露到 Dashboard 产品 UI。
+
+### 006-H 测试
+
+* `packages/browser-controller/dingmap-import-dialog.test.ts`
+* `packages/browser-controller/dingmap-coordinate-type.test.ts`
+* `packages/browser-controller/dingmap-marker-style.test.ts`
+* `apps/dashboard/app/dashboard-dingmap-upload-ui.test.ts`
+
+### 006-H 当前验证
+
+* `corepack pnpm run check`：通过。
+* 目标测试：通过，4 个测试文件、26 个测试。
+* 完整 `verify` 与真实页面验收：待本轮最终验收前执行。
+
+### 006-H 自查
+
+1. 是否没有新增产品级人工辅助入口：是。
+2. 是否不继续把弹窗控制逻辑散落在主流程：是，已拆到 controller。
+3. 是否坐标类型拒绝拼接选项文本：是。
+4. 是否标记样式点击图标按钮并读取颜色块：是。
+5. 是否美团点选择黄色、面试点选择红色：是，测试覆盖。
+6. 是否 computed style 优先、顺序 fallback 集中：是。
+7. 是否标记大小必须真实确认“小”：是。
+8. 是否任一步失败不上传文件、不点击导入：是。
+9. 是否不改平台颜色映射、文件命名、2000 条限制、字段映射、unknown、登录逻辑：是。
+10. 是否不提交真实截图 / debug / DB / 导出 Excel / browser profile：是，目录均 ignored。
+
+## 006-H 追加修复：真实 DOM 诊断与控件定位稳定性
+
+本轮只修导入弹窗控制器和诊断脚本，不继续钉图真实上传提交。
+
+完成：
+
+* 启动新诊断前先检查并清理旧 `dingmap:inspect` / `dingmap-inspect` 进程，避免残留 PowerShell / Chrome 诊断窗口误导。
+* `inspect()` 改为顺序读取，避免并发诊断覆盖临时 DOM id。
+* `inspectField()` 立即固化 trigger 摘要，避免后续 `options/currentText` 读取重定位后旧 locator 等待超时。
+* 标签与控件位于同一容器时，使用文字 `Range` 读取标签自身矩形，再从右侧寻找 `select`、combobox、样式图标。
+* 排除“导入 / 下载导入模板 / 教程”等无关按钮，避免把“导入”误识别成“标记大小”控件。
+* 原生 `select` 切换使用 option index，标记大小仅在文本匹配失败时 fallback 到第一个“小”选项。
+* `pnpm dingmap:inspect` 支持 `--capture-now`；登录页或未打开真实“数据导入”弹窗时直接报错。
+* 诊断脚本结束后关闭自己打开的 context，减少窗口残留。
+* 点击“导入”后从点击时刻重新计时等待结果提示，避免打开地图耗时挤占成功弹窗等待时间。
+* 成功提示 selector 补充“导入完成”“数据导入成功”。
+
+验证：
+
+* `corepack pnpm test -- packages/browser-controller/dingmap-import-dialog.test.ts`：通过。
+* `corepack pnpm test -- packages/browser-controller/dingmap-marker-style.test.ts`：通过。
+* `corepack pnpm test -- packages/browser-controller/dingmap-selectors.test.ts`：通过。
+* `corepack pnpm check`：通过。
+* `corepack pnpm lint`：通过。
+
+待办：
+
+* 等真实页面重新打开到“数据导入”弹窗后运行 `pnpm dingmap:inspect -- meituan --capture-now`。
+* 完整 `corepack pnpm verify` 待最终收尾前执行。

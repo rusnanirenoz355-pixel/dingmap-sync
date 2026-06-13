@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "verify": "tsc -p tsconfig.check.json --noEmit && eslint . && vitest run",
-    "format": "prettier --check ."
+    "format": "prettier --check .",
+    "dingmap:inspect": "tsx packages/browser-controller/dingmap-inspect.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

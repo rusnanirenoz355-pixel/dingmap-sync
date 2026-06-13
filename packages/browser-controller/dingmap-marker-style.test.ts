@@ -9,18 +9,35 @@ describe("DingMap marker style automation helpers", () => {
     join(process.cwd(), "packages", "browser-controller", "dingmap-upload.ts"),
     "utf8",
   );
+  const inspectSource = readFileSync(
+    join(process.cwd(), "packages", "browser-controller", "dingmap-inspect.ts"),
+    "utf8",
+  );
 
-  it("sets import dialog options through an explicit ordered flow", () => {
-    expect(uploadSource).toContain("async function setImportOptions");
-    expect(uploadSource).toContain("async function setCoordinateType");
-    expect(uploadSource).toContain("async function setMarkerStyle");
-    expect(uploadSource).toContain("async function setMarkerSize");
-    expect(uploadSource.indexOf("await setCoordinateType")).toBeLessThan(
-      uploadSource.indexOf("await setMarkerStyle"),
+  it("delegates import dialog options to the dedicated controller", () => {
+    expect(uploadSource).toContain("DingMapImportDialogController");
+    expect(uploadSource).toContain("const importDialog = new DingMapImportDialogController");
+    expect(uploadSource.indexOf("await setImportOptions")).toBeLessThan(
+      uploadSource.indexOf("await importDialog.uploadFile"),
     );
-    expect(uploadSource.indexOf("await setMarkerStyle")).toBeLessThan(
-      uploadSource.indexOf("await setMarkerSize"),
+    expect(uploadSource.indexOf("await importDialog.uploadFile")).toBeLessThan(
+      uploadSource.indexOf("await importDialog.clickImport"),
     );
+    expect(uploadSource.indexOf("await importDialog.clickImport")).toBeLessThan(
+      uploadSource.indexOf("await importDialog.readResult"),
+    );
+  });
+
+  it("waits for the DingMap result from the import click time, not the job start time", () => {
+    expect(uploadSource).toContain("const resultStartedAt = Date.now()");
+    expect(uploadSource).toContain("await importDialog.readResult(resultStartedAt)");
+    expect(uploadSource).not.toContain("await importDialog.readResult(startedAt)");
+  });
+
+  it("keeps the DingMap inspect helper noninteractive and self-cleaning when requested", () => {
+    expect(inspectSource).toContain("--capture-now");
+    expect(inspectSource).toContain("/user/login");
+    expect(inspectSource).toContain("session.context.close()");
   });
 
   it("keeps color nth fallbacks scoped to the marker style panel", () => {

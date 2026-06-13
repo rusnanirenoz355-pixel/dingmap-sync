@@ -295,3 +295,65 @@ Done:
 * 保持 unknown 不伪造成 success，保持钉图模板固定 7 列，保持 2000 条限制。
 
 P1 批量永久删除和 P2 完整主题切换未在本轮执行。
+
+## Task 006-H Draft：导入弹窗真实 DOM 诊断与控制器重写
+
+本轮目标是修正钉图“数据导入”弹窗参数设置策略，不扩展新产品功能。
+
+Done:
+
+* 新增 `DingMapImportDialogController`，集中控制坐标类型、标记样式、标记大小、上传文件、点击导入和读取结果。
+* 上传主流程改为固定顺序：打开导入弹窗 → `setImportOptions()` → `uploadFile()` → `clickImport()` → `readResult()`。
+* `setImportOptions()` 内部固定顺序：`setCoordinateType()` → `setMarkerStyle()` → `setMarkerSize()`。
+* 坐标类型确认只读取当前 trigger 值；读取到多个选项拼接文本时 blocked。
+* 标记大小确认只读取当前 trigger 值；读取到“小 中 大”或选后仍非“小”时 blocked。
+* 标记样式按真实 UI 点击图标按钮，展开颜色块，优先 computed background-color，fallback 到集中颜色顺序。
+* 任一步 blocked 时不上传文件、不点击导入。
+* Dashboard 继续显示目标值与页面确认值，未确认显示“未确认”。
+* 新增 `pnpm dingmap:inspect` 开发诊断命令，诊断 JSON/TXT 和截图写入 ignored 本地目录。
+
+新增 / 更新测试：
+
+* `packages/browser-controller/dingmap-import-dialog.test.ts`
+* `packages/browser-controller/dingmap-coordinate-type.test.ts`
+* `packages/browser-controller/dingmap-marker-style.test.ts`
+* `apps/dashboard/app/dashboard-dingmap-upload-ui.test.ts`
+
+验证：
+
+* `corepack pnpm run check`：通过。
+* 目标测试通过：4 个测试文件、26 个测试。
+* 完整 `verify`：待真实页面验收后执行。
+
+不做：
+
+* 未改平台颜色映射。
+* 未改文件命名规则。
+* 未改 2000 条限制。
+* 未改字段映射。
+* 未改 unknown / 登录逻辑。
+* 未处理账号密码、cookie、token。
+* 未提交真实截图、debug DOM、DB、导出 Excel 或 browser profile。
+
+## 006-H 追加修复记录
+
+本轮补强导入弹窗真实 DOM 诊断与控件定位：
+
+* 清理旧诊断窗口 / 进程后再进入下一步，避免残留 inspect 窗口报错。
+* `inspect()` 顺序执行，避免并发 DOM 临时 id 覆盖。
+* `inspectField()` 立即固化 trigger 摘要，避免旧 locator 等待 30 秒。
+* 用文字 `Range` 计算标签自身位置，解决标签和控件同容器时把“导入”按钮误识别为字段控件的问题。
+* 原生 select 通过 option index 切换，标记大小仅 fallback 到第一个“小”选项。
+* `pnpm dingmap:inspect` 支持 `--capture-now`，检测登录页或未打开“数据导入”弹窗时直接失败，并在结束后关闭自己打开的 context。
+* 点击“导入”后从点击时刻重新计时等待结果，避免成功弹窗被前置耗时挤掉。
+* 成功提示 selector 补充“导入完成”“数据导入成功”。
+
+已验证：
+
+* `corepack pnpm test -- packages/browser-controller/dingmap-import-dialog.test.ts`
+* `corepack pnpm test -- packages/browser-controller/dingmap-marker-style.test.ts`
+* `corepack pnpm test -- packages/browser-controller/dingmap-selectors.test.ts`
+* `corepack pnpm check`
+* `corepack pnpm lint`
+
+仍待真实页面验收：在自动化 Chrome 中打开“数据导入”弹窗后运行 `pnpm dingmap:inspect -- meituan --capture-now`，再继续真实导入流程验证。
