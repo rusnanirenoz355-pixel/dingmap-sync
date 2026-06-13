@@ -1,4 +1,10 @@
-export type { ExistingMarkerFingerprint, ImportPreviewSource, RawImportRow } from "./types";
+export type {
+  ExistingMarkerFingerprint,
+  ImportOriginType,
+  ImportPreviewSource,
+  ImportSource,
+  RawImportRow,
+} from "./types";
 export {
   buildImportPreview,
   buildMergeKey,

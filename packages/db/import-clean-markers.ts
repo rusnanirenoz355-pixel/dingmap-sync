@@ -211,12 +211,13 @@ function extractRawImportRow(row: RawImportRow | ImportPreviewRow): RawImportRow
       ? row.originType
       : isImportOrigin(previewOriginType)
         ? previewOriginType
-        : source;
+        : defaultOriginTypeForSource(source);
 
   return {
     rowIndex: Number.isFinite(row.rowIndex) ? row.rowIndex : 0,
     source,
     originType,
+    sourceId: "mapped" in row ? undefined : row.sourceId,
     rawText: typeof row.rawText === "string" ? row.rawText : "",
     raw: normalizeRawRecord(row.raw),
   };
@@ -425,10 +426,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isImportSource(value: unknown): value is RawImportRow["source"] {
-  return value === "manual_paste" || value === "excel";
+export function isImportSource(value: unknown): value is RawImportRow["source"] {
+  return value === "manual_paste" || value === "excel" || value === "youzhao";
 }
 
-function isImportOrigin(value: unknown): value is RawImportRow["originType"] {
-  return value === "manual_paste" || value === "excel";
+export function isImportOrigin(value: unknown): value is RawImportRow["originType"] {
+  return value === "manual_paste" || value === "excel" || value === "web";
+}
+
+function defaultOriginTypeForSource(source: RawImportRow["source"]): RawImportRow["originType"] {
+  return source === "youzhao" ? "web" : source;
 }

@@ -78,7 +78,9 @@ function buildPreviewRow(
   const errors: string[] = [];
   const mapped = mapRawToMarker(row, warnings);
 
-  if (!mapped.siteName && !mapped.address) {
+  if (row.source === "youzhao") {
+    validateYouzhaoMarker(row, mapped, errors);
+  } else if (!mapped.siteName && !mapped.address) {
     errors.push("站点名称或地址至少需要填写一个。");
   }
 
@@ -99,9 +101,13 @@ function buildPreviewRow(
     mapped.phone = phoneResult.primaryPhone;
   }
 
-  const mergeKey = buildMergeKey(mapped);
+  const mergeKey = buildRowMergeKey(row, mapped);
   if (!mergeKey) {
-    errors.push("无法生成 merge_key，需要电话+地址、站点名称+地址或站点名称+电话。");
+    errors.push(
+      row.source === "youzhao"
+        ? "无法生成 merge_key，需要优招 sourceId。"
+        : "无法生成 merge_key，需要电话+地址、站点名称+地址或站点名称+电话。",
+    );
   }
 
   const currentHash = errors.length === 0 ? buildMarkerHash(mapped) : null;
@@ -122,10 +128,18 @@ function buildPreviewRow(
     currentHash,
     existingMarkerId: existing?.id ?? null,
     parseStatus: status === "invalid" ? "failed" : "parsed",
+    targetLayer: normalizeText(row.raw.targetLayer) || null,
+    dingmapRemark: normalizeText(row.raw.dingmapRemark) || null,
+    dingmapFieldOne: normalizeText(row.raw.dingmapFieldOne) || null,
+    dingmapFieldTwo: normalizeText(row.raw.dingmapFieldTwo) || null,
   };
 }
 
 function mapRawToMarker(row: RawImportRow, warnings: string[]): Partial<CleanMarker> {
+  if (row.source === "youzhao") {
+    return mapYouzhaoRawToMarker(row);
+  }
+
   const headerMap = buildHeaderMap(Object.keys(row.raw), warnings);
   const marker: Partial<CleanMarker> = {
     source: row.source,
@@ -140,6 +154,70 @@ function mapRawToMarker(row: RawImportRow, warnings: string[]): Partial<CleanMar
   }
 
   return marker;
+}
+
+function mapYouzhaoRawToMarker(row: RawImportRow): Partial<CleanMarker> {
+  return {
+    source: "youzhao",
+    sourceId: resolveYouzhaoSourceId(row),
+    originType: "web",
+    siteName: normalizeText(row.raw["合作站点名称"]),
+    address: normalizeText(row.raw["站点地址"]),
+    longitude: null,
+    latitude: null,
+    stationManager: normalizeText(row.raw["站长姓名"]) || null,
+    phone: normalizeText(row.raw["站长电话"]) || null,
+    salary: normalizeText(row.raw["薪资方案"]) || null,
+    welfare: normalizeText(row.raw["新人政策"]) || null,
+    jobTitle: normalizeText(row.raw["岗位名称"]) || null,
+    remark: normalizeText(row.raw["结算规则"]) || null,
+    syncAction: "review",
+    syncStatus: "need_confirm",
+  };
+}
+
+function validateYouzhaoMarker(
+  row: RawImportRow,
+  marker: Partial<CleanMarker>,
+  errors: string[],
+): void {
+  if (!marker.siteName) {
+    errors.push("合作站点名称不能为空。");
+  }
+
+  if (!normalizeText(row.raw.jobId)) {
+    errors.push("优招记录缺少 jobId，不能伪造 sourceId。");
+  }
+
+  if (!marker.sourceId) {
+    errors.push("优招记录缺少 sourceId。");
+  }
+
+  if (!isYouzhaoRecruitingStatus(row.raw["招聘状态"])) {
+    errors.push("优招记录不是招聘中状态。");
+  }
+}
+
+function buildRowMergeKey(row: RawImportRow, marker: Partial<CleanMarker>): string | null {
+  if (row.source === "youzhao") {
+    return marker.sourceId ? `source_id:youzhao:${marker.sourceId}` : null;
+  }
+
+  return buildMergeKey(marker);
+}
+
+function resolveYouzhaoSourceId(row: RawImportRow): string | null {
+  const siteId = normalizeText(row.raw.siteId);
+  const jobId = normalizeText(row.raw.jobId);
+  if (siteId && jobId) {
+    return `${siteId}:${jobId}`;
+  }
+  return jobId || null;
+}
+
+function isYouzhaoRecruitingStatus(value: unknown): boolean {
+  const normalized = normalizeText(value).replace(/\s+/g, "").toLowerCase();
+  return normalized === "招聘中" || normalized === "1";
 }
 
 function buildHeaderMap(headers: string[], warnings: string[]): HeaderMap {

@@ -19,6 +19,16 @@ function rawRow(raw: Record<string, string>): RawImportRow {
   };
 }
 
+function youzhaoRow(raw: Record<string, string>): RawImportRow {
+  return {
+    rowIndex: 1,
+    source: "youzhao",
+    originType: "web",
+    rawText: JSON.stringify(raw),
+    raw,
+  };
+}
+
 describe("shared import preview pipeline", () => {
   it("maps aliases and marks a new row as valid", () => {
     const rows = buildImportPreview([
@@ -117,5 +127,92 @@ describe("shared import preview pipeline", () => {
     expect(buildMergeKey({ address: "Alpha Road", phone: syntheticPhone })).toContain(
       "phone_address",
     );
+  });
+
+  it("accepts youzhao web rows and dedupes by stable source id", () => {
+    const rows = buildImportPreview([
+      youzhaoRow({
+        siteId: "site-1",
+        jobId: "job-a",
+        合作站点名称: "Synthetic Site",
+        站点地址: "",
+        站长姓名: "Manager A",
+        站长电话: syntheticPhone,
+        岗位名称: "Rider",
+        薪资方案: "Synthetic salary",
+        新人政策: "Synthetic welfare",
+        结算规则: "Synthetic settlement",
+        业务线: "美团",
+        招聘状态: "招聘中",
+        targetLayer: "美团点",
+        dingmapFieldOne: `Manager A ${syntheticPhone}`,
+        dingmapFieldTwo: "Synthetic settlement",
+      }),
+    ]);
+
+    expect(rows[0]).toMatchObject({
+      source: "youzhao",
+      status: "valid",
+      mergeKey: "source_id:youzhao:site-1:job-a",
+      targetLayer: "美团点",
+      dingmapFieldOne: `Manager A ${syntheticPhone}`,
+      dingmapFieldTwo: "Synthetic settlement",
+    });
+    expect(rows[0]?.mapped).toMatchObject({
+      source: "youzhao",
+      originType: "web",
+      sourceId: "site-1:job-a",
+      siteName: "Synthetic Site",
+      address: "",
+      longitude: null,
+      latitude: null,
+      jobTitle: "Rider",
+      salary: "Synthetic salary",
+      welfare: "Synthetic welfare",
+      remark: "Synthetic settlement",
+    });
+    expect(rows[0]?.warnings).toContain("地址为空，导入后可能需要人工补齐定位信息。");
+  });
+
+  it("does not merge two youzhao jobs from the same site and address", () => {
+    const rows = buildImportPreview([
+      youzhaoRow({
+        siteId: "site-1",
+        jobId: "job-a",
+        合作站点名称: "Synthetic Site",
+        站点地址: "Synthetic Road",
+        岗位名称: "Job A",
+        招聘状态: "招聘中",
+      }),
+      youzhaoRow({
+        siteId: "site-1",
+        jobId: "job-b",
+        合作站点名称: "Synthetic Site",
+        站点地址: "Synthetic Road",
+        岗位名称: "Job B",
+        招聘状态: "招聘中",
+      }),
+    ]);
+
+    expect(rows.map((row) => row.mergeKey)).toEqual([
+      "source_id:youzhao:site-1:job-a",
+      "source_id:youzhao:site-1:job-b",
+    ]);
+    expect(rows.every((row) => row.status === "valid")).toBe(true);
+  });
+
+  it("marks youzhao rows without job id invalid instead of inventing source id", () => {
+    const rows = buildImportPreview([
+      youzhaoRow({
+        siteId: "site-1",
+        合作站点名称: "Synthetic Site",
+        站点地址: "Synthetic Road",
+        招聘状态: "招聘中",
+      }),
+    ]);
+
+    expect(rows[0]?.status).toBe("invalid");
+    expect(rows[0]?.mergeKey).toBeNull();
+    expect(rows[0]?.errors).toContain("优招记录缺少 jobId，不能伪造 sourceId。");
   });
 });

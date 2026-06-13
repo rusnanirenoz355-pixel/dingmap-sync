@@ -53,4 +53,8 @@ export interface ImportPreviewRow {
   currentHash?: string | null;
   existingMarkerId?: number | null;
   parseStatus?: "pending" | "parsed" | "needs_review" | "failed";
+  targetLayer?: string | null;
+  dingmapRemark?: string | null;
+  dingmapFieldOne?: string | null;
+  dingmapFieldTwo?: string | null;
 }

@@ -1,11 +1,14 @@
 import type { CleanMarker } from "@dingmap-sync/shared";
 
-export type ImportPreviewSource = "manual_paste" | "excel";
+export type ImportSource = "manual_paste" | "excel" | "youzhao";
+export type ImportPreviewSource = ImportSource;
+export type ImportOriginType = Extract<CleanMarker["originType"], "manual_paste" | "excel" | "web">;
 
 export interface RawImportRow {
   rowIndex: number;
-  source: ImportPreviewSource;
-  originType: Extract<CleanMarker["originType"], "manual_paste" | "excel">;
+  source: ImportSource;
+  originType: ImportOriginType;
+  sourceId?: string | null;
   rawText: string;
   raw: Record<string, string>;
 }

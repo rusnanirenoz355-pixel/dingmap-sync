@@ -14,11 +14,12 @@ const syntheticPhone = ["199", "0000", "0000"].join("");
 function rawRow(
   raw: Record<string, string>,
   source: RawImportRow["source"] = "manual_paste",
+  originType: RawImportRow["originType"] = source === "youzhao" ? "web" : source,
 ): RawImportRow {
   return {
     rowIndex: 2,
     source,
-    originType: source,
+    originType,
     rawText: Object.values(raw).join("\t"),
     raw,
   };
@@ -142,6 +143,68 @@ describe("shared clean marker import database service", () => {
       syncAction: "create",
       syncStatus: "pending",
     });
+  });
+
+  it("inserts youzhao web rows with source id while preserving manual and excel behavior", () => {
+    const result = importCleanMarkers([
+      rawRow(
+        {
+          siteId: "site-1",
+          jobId: "job-a",
+          合作站点名称: "Synthetic Site",
+          站点地址: "Synthetic Road",
+          站长电话: syntheticPhone,
+          岗位名称: "Synthetic Job",
+          招聘状态: "招聘中",
+        },
+        "youzhao",
+        "web",
+      ),
+    ]);
+
+    expect(result.inserted).toBe(1);
+    expect(result.cleanMarkers[0]).toMatchObject({
+      source: "youzhao",
+      originType: "web",
+      sourceId: "site-1:job-a",
+      siteName: "Synthetic Site",
+      address: "Synthetic Road",
+      longitude: null,
+      latitude: null,
+      syncAction: "create",
+      syncStatus: "pending",
+    });
+  });
+
+  it("revalidates youzhao source id from raw job fields and ignores forged client status", () => {
+    const forged = {
+      rowIndex: 3,
+      source: "youzhao",
+      rawText: "{}",
+      raw: {
+        合作站点名称: "Forged Site",
+        站点地址: "Forged Road",
+        招聘状态: "招聘中",
+      },
+      mapped: {
+        source: "youzhao",
+        originType: "web",
+        sourceId: "forged-source-id",
+        siteName: "Forged Site",
+        address: "Forged Road",
+      },
+      status: "valid",
+      errors: [],
+      warnings: [],
+      mergeKey: "source_id:youzhao:forged-source-id",
+      currentHash: "forged-hash",
+    } as ImportPreviewRow;
+
+    const result = importCleanMarkers([forged]);
+
+    expect(result.inserted).toBe(0);
+    expect(result.skippedInvalid).toBe(1);
+    expect(result.cleanMarkers).toHaveLength(0);
   });
 
   it("keeps inserted rows eligible for DingMap template export", () => {
