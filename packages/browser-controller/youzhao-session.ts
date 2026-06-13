@@ -27,6 +27,7 @@ export type YouzhaoSessionStatus =
 export interface YouzhaoSessionResult {
   status: YouzhaoSessionStatus;
   authenticated: boolean;
+  pageDetected?: boolean;
   profileDir?: string;
   message?: string;
 }
@@ -42,6 +43,7 @@ interface ContextRequest {
 export interface YouzhaoPersistentPage {
   bringToFront?: () => Promise<void>;
   goto: (url: string, options?: { waitUntil?: "domcontentloaded"; timeout?: number }) => Promise<unknown>;
+  url?: () => string;
 }
 
 export interface YouzhaoPersistentContext {
@@ -63,7 +65,14 @@ export interface YouzhaoSessionOptions {
   timeoutMs?: number;
 }
 
-let activeContext: YouzhaoPersistentContext | null = null;
+interface YouzhaoSessionStore {
+  activeContext: YouzhaoPersistentContext | null;
+}
+
+declare global {
+  // Persist across Next dev route recompiles inside the same Node process.
+  var __dingmapYouzhaoSession: YouzhaoSessionStore | undefined;
+}
 
 const defaultAdapter: YouzhaoSessionAdapter = {
   async launchPersistentContext(profileDir, options) {
@@ -82,20 +91,25 @@ export async function openYouzhaoLoginSession(
   mkdirSync(profileDir, { recursive: true });
 
   const adapter = options.adapter ?? defaultAdapter;
-  if (!activeContext) {
-    activeContext = await adapter.launchPersistentContext(profileDir, { headless: false });
+  const store = getSessionStore();
+  if (!store.activeContext) {
+    store.activeContext = await adapter.launchPersistentContext(profileDir, { headless: false });
   }
 
-  const page = activeContext.pages()[0] ?? (await activeContext.newPage());
+  const page = await resolveYouzhaoLoginPage(store.activeContext);
   await page.bringToFront?.();
-  await page.goto(YOUZHAO_LOGIN_URL, {
-    waitUntil: "domcontentloaded",
-    timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-  });
+  const pageDetected = isYouzhaoPage(page);
+  if (!pageDetected) {
+    await page.goto(YOUZHAO_LOGIN_URL, {
+      waitUntil: "domcontentloaded",
+      timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    });
+  }
 
   return {
     status: "opened",
     authenticated: false,
+    pageDetected: pageDetected || isYouzhaoPage(page),
     profileDir: YOUZHAO_PROFILE_RELATIVE_DIR,
   };
 }
@@ -111,12 +125,17 @@ export async function checkYouzhaoLoginSession(
   });
 
   if (result.status === "success") {
-    return { status: "authenticated", authenticated: true };
+    return {
+      status: "authenticated",
+      authenticated: true,
+      pageDetected: hasYouzhaoPage(getSessionStore().activeContext),
+    };
   }
 
   return {
     status: mapClientStatusToSessionStatus(result.status),
     authenticated: false,
+    pageDetected: hasYouzhaoPage(getSessionStore().activeContext),
     message: result.message,
   };
 }
@@ -125,6 +144,7 @@ export async function fetchWithYouzhaoSession(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
+  const activeContext = getSessionStore().activeContext;
   if (!activeContext) {
     throw new Error("请先打开优招登录窗口并完成手动登录。");
   }
@@ -142,6 +162,34 @@ export async function fetchWithYouzhaoSession(
     status: apiResponse.status(),
     headers: apiResponse.headers(),
   });
+}
+
+export function resetYouzhaoSessionForTests(): void {
+  getSessionStore().activeContext = null;
+}
+
+function getSessionStore(): YouzhaoSessionStore {
+  globalThis.__dingmapYouzhaoSession ??= { activeContext: null };
+  return globalThis.__dingmapYouzhaoSession;
+}
+
+async function resolveYouzhaoLoginPage(
+  context: YouzhaoPersistentContext,
+): Promise<YouzhaoPersistentPage> {
+  return findYouzhaoPage(context.pages()) ?? context.pages()[0] ?? context.newPage();
+}
+
+function findYouzhaoPage(pages: YouzhaoPersistentPage[]): YouzhaoPersistentPage | null {
+  return pages.find(isYouzhaoPage) ?? null;
+}
+
+function hasYouzhaoPage(context: YouzhaoPersistentContext | null): boolean {
+  return Boolean(context && findYouzhaoPage(context.pages()));
+}
+
+function isYouzhaoPage(page: YouzhaoPersistentPage): boolean {
+  const url = page.url?.() ?? "";
+  return url.startsWith("https://hr.qingz.xyz/");
 }
 
 function mapClientStatusToSessionStatus(status: YouzhaoApiStatus): YouzhaoSessionStatus {

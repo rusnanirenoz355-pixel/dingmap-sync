@@ -1,14 +1,19 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   YOUZHAO_LOGIN_URL,
   YOUZHAO_PROFILE_RELATIVE_DIR,
   checkYouzhaoLoginSession,
+  resetYouzhaoSessionForTests,
   openYouzhaoLoginSession,
 } from "./youzhao-session";
 
 describe("youzhao persistent session", () => {
+  beforeEach(() => {
+    resetYouzhaoSessionForTests();
+  });
+
   it("opens a headed persistent context in the ignored profile without claiming login", async () => {
     const page = {
       bringToFront: vi.fn(async () => undefined),
@@ -40,6 +45,37 @@ describe("youzhao persistent session", () => {
 
     const gitignore = readFileSync(join(process.cwd(), ".gitignore"), "utf8");
     expect(gitignore).toContain("data/browser-profile/");
+  });
+
+  it("reuses an already open youzhao page instead of creating a new browser page", async () => {
+    const youzhaoPage = {
+      url: () => YOUZHAO_LOGIN_URL,
+      bringToFront: vi.fn(async () => undefined),
+      goto: vi.fn(async () => undefined),
+    };
+    const blankPage = {
+      url: () => "about:blank",
+      bringToFront: vi.fn(async () => undefined),
+      goto: vi.fn(async () => undefined),
+    };
+    const context = {
+      pages: () => [blankPage, youzhaoPage],
+      newPage: vi.fn(),
+      request: {
+        get: vi.fn(),
+      },
+    };
+    const adapter = {
+      launchPersistentContext: vi.fn(async () => context),
+    };
+
+    await openYouzhaoLoginSession({ adapter });
+    await openYouzhaoLoginSession({ adapter });
+
+    expect(adapter.launchPersistentContext).toHaveBeenCalledTimes(1);
+    expect(context.newPage).not.toHaveBeenCalled();
+    expect(youzhaoPage.bringToFront).toHaveBeenCalledTimes(2);
+    expect(youzhaoPage.goto).not.toHaveBeenCalled();
   });
 
   it("checks login through the authenticated context API instead of page URL", async () => {
