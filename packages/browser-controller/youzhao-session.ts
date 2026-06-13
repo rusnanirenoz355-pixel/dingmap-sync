@@ -92,11 +92,19 @@ export async function openYouzhaoLoginSession(
 
   const adapter = options.adapter ?? defaultAdapter;
   const store = getSessionStore();
-  if (!store.activeContext) {
-    store.activeContext = await adapter.launchPersistentContext(profileDir, { headless: false });
+  let activeContext = await getOrCreateContext(store, adapter, profileDir);
+  let page: YouzhaoPersistentPage;
+  try {
+    page = await resolveYouzhaoLoginPage(activeContext);
+  } catch (error) {
+    if (!isClosedContextError(error)) {
+      throw error;
+    }
+    store.activeContext = null;
+    activeContext = await getOrCreateContext(store, adapter, profileDir);
+    page = await resolveYouzhaoLoginPage(activeContext);
   }
 
-  const page = await resolveYouzhaoLoginPage(store.activeContext);
   await page.bringToFront?.();
   const pageDetected = isYouzhaoPage(page);
   if (!pageDetected) {
@@ -173,6 +181,15 @@ function getSessionStore(): YouzhaoSessionStore {
   return globalThis.__dingmapYouzhaoSession;
 }
 
+async function getOrCreateContext(
+  store: YouzhaoSessionStore,
+  adapter: YouzhaoSessionAdapter,
+  profileDir: string,
+): Promise<YouzhaoPersistentContext> {
+  store.activeContext ??= await adapter.launchPersistentContext(profileDir, { headless: false });
+  return store.activeContext;
+}
+
 async function resolveYouzhaoLoginPage(
   context: YouzhaoPersistentContext,
 ): Promise<YouzhaoPersistentPage> {
@@ -184,12 +201,26 @@ function findYouzhaoPage(pages: YouzhaoPersistentPage[]): YouzhaoPersistentPage 
 }
 
 function hasYouzhaoPage(context: YouzhaoPersistentContext | null): boolean {
-  return Boolean(context && findYouzhaoPage(context.pages()));
+  if (!context) {
+    return false;
+  }
+  try {
+    return Boolean(findYouzhaoPage(context.pages()));
+  } catch (error) {
+    if (isClosedContextError(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function isYouzhaoPage(page: YouzhaoPersistentPage): boolean {
   const url = page.url?.() ?? "";
   return url.startsWith("https://hr.qingz.xyz/");
+}
+
+function isClosedContextError(error: unknown): boolean {
+  return error instanceof Error && /Target page, context or browser has been closed/i.test(error.message);
 }
 
 function mapClientStatusToSessionStatus(status: YouzhaoApiStatus): YouzhaoSessionStatus {

@@ -78,6 +78,42 @@ describe("youzhao persistent session", () => {
     expect(youzhaoPage.goto).not.toHaveBeenCalled();
   });
 
+  it("relaunches the persistent context when the stored context was already closed", async () => {
+    const closedContext = {
+      pages: () => {
+        throw new Error("Target page, context or browser has been closed");
+      },
+      newPage: vi.fn(),
+      request: {
+        get: vi.fn(),
+      },
+    };
+    const freshPage = {
+      url: () => "about:blank",
+      bringToFront: vi.fn(async () => undefined),
+      goto: vi.fn(async () => undefined),
+    };
+    const freshContext = {
+      pages: () => [freshPage],
+      newPage: vi.fn(),
+      request: {
+        get: vi.fn(),
+      },
+    };
+    const adapter = {
+      launchPersistentContext: vi.fn()
+        .mockResolvedValueOnce(closedContext)
+        .mockResolvedValueOnce(freshContext),
+    };
+
+    await openYouzhaoLoginSession({ adapter });
+    const result = await openYouzhaoLoginSession({ adapter });
+
+    expect(result.status).toBe("opened");
+    expect(adapter.launchPersistentContext).toHaveBeenCalledTimes(2);
+    expect(freshPage.goto).toHaveBeenCalledWith(YOUZHAO_LOGIN_URL, expect.any(Object));
+  });
+
   it("checks login through the authenticated context API instead of page URL", async () => {
     const requestedUrls: string[] = [];
     const result = await checkYouzhaoLoginSession(
