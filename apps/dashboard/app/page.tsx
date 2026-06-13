@@ -799,8 +799,9 @@ function formatYouzhaoFailure(
 ): string {
   const diagnostics = data.diagnostics;
   const status = data.status ?? diagnostics?.finalStatus ?? "failed";
+  const statusDescription = describeYouzhaoStatus(status);
   const lines = [
-    `${prefix}: ${status}`,
+    `${prefix}: ${status}${statusDescription ? ` (${statusDescription})` : ""}`,
     `HTTP status: ${diagnostics?.httpStatus ?? response.status}`,
     `Request mode: ${diagnostics?.requestMode ?? "unknown"}`,
     `Stage: ${stage}`,
@@ -815,6 +816,25 @@ function formatYouzhaoFailure(
     lines.push(`Error: ${data.error}`);
   }
   return lines.join("\n");
+}
+
+function describeYouzhaoStatus(status: string): string {
+  if (status === "requires_login") {
+    return "未登录";
+  }
+  if (status === "auth_mechanism_unknown") {
+    return "已登录，但接口认证机制尚未识别";
+  }
+  if (status === "auth_failed") {
+    return "接口认证失败";
+  }
+  if (status === "forbidden") {
+    return "权限不足";
+  }
+  if (status === "schema_changed") {
+    return "接口结构变化";
+  }
+  return "";
 }
 
 function stageForYouzhaoLoading(loadingState: Exclude<LoadingState, null>): string {

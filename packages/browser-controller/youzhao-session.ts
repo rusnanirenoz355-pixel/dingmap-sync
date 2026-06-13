@@ -24,9 +24,33 @@ export type YouzhaoSessionStatus =
   | "blocked"
   | "timeout"
   | "schema_changed"
+  | "auth_mechanism_unknown"
+  | "auth_failed"
   | "failed";
 
-export type YouzhaoRequestMode = "page-fetch" | "context-request";
+export type YouzhaoRequestMode = "page-fetch" | "page-auth-fetch" | "context-request";
+
+export type YouzhaoAuthProbeStatus =
+  | "authenticated"
+  | "requires_login"
+  | "auth_mechanism_unknown"
+  | "auth_failed";
+
+interface YouzhaoPageFeatureFlags {
+  positionManagementVisible: boolean;
+  positionListVisible: boolean;
+  businessTextVisible: boolean;
+}
+
+interface YouzhaoNativeRequestSummary {
+  method: string;
+  pathname: string;
+  queryParamNames: string[];
+  httpStatus?: number;
+  requestHeaderNames: string[];
+  authHeaderNames: string[];
+  differentFromBareFetchHeaderNames: string[];
+}
 
 export interface YouzhaoSessionDiagnostics {
   sessionFound: boolean;
@@ -34,10 +58,24 @@ export interface YouzhaoSessionDiagnostics {
   pageCount: number;
   youzhaoPageFound: boolean;
   youzhaoPageUrl?: string;
+  pagePathname?: string;
+  businessPageVisible?: boolean;
+  pageRefreshPreservedLogin?: boolean;
+  businessFeatureFlags?: YouzhaoPageFeatureFlags;
   requestMode?: YouzhaoRequestMode;
   httpStatus?: number;
   contentType?: string;
   responseUrl?: string;
+  bareFetchHttpStatus?: number;
+  authenticatedFetchHttpStatus?: number;
+  localStorageKeys?: string[];
+  sessionStorageKeys?: string[];
+  sensitiveStorageKeyHints?: string[];
+  nativePositionsRequest?: YouzhaoNativeRequestSummary;
+  authHeaderNames?: string[];
+  authStorageKeyUsed?: string;
+  tokenStayedInPage?: boolean;
+  finalAuthStatus?: YouzhaoAuthProbeStatus;
   finalStatus?: YouzhaoSessionStatus;
 }
 
@@ -63,15 +101,27 @@ interface PageFetchResult {
   headers: Record<string, string>;
   body: string;
   url?: string;
+  diagnostics?: Partial<YouzhaoSessionDiagnostics>;
 }
 
 export interface YouzhaoPersistentPage {
   bringToFront?: () => Promise<void>;
   evaluate?: (
-    pageFunction: (arg: { path: string; headers: Record<string, string> }) => PageFetchResult | Promise<PageFetchResult>,
-    arg: { path: string; headers: Record<string, string> },
+    pageFunction: (arg: {
+      path: string;
+      headers: Record<string, string>;
+      nativeAuthHeaderNames: string[];
+    }) => PageFetchResult | Promise<PageFetchResult>,
+    arg: {
+      path: string;
+      headers: Record<string, string>;
+      nativeAuthHeaderNames: string[];
+    },
   ) => Promise<PageFetchResult>;
   goto: (url: string, options?: { waitUntil?: "domcontentloaded"; timeout?: number }) => Promise<unknown>;
+  off?: (event: "request" | "response", handler: (event: unknown) => void) => void;
+  on?: (event: "request" | "response", handler: (event: unknown) => void) => void;
+  reload?: (options?: { waitUntil?: "domcontentloaded"; timeout?: number }) => Promise<unknown>;
   url?: () => string;
 }
 
@@ -223,22 +273,33 @@ export async function requestYouzhaoApiFromAuthenticatedPage(
   const youzhaoPage = safeFindYouzhaoPage(activeContext);
   if (youzhaoPage?.evaluate) {
     try {
+      const nativePositionsRequest = await captureNativePositionsRequestSummary(youzhaoPage, DEFAULT_TIMEOUT_MS);
       const pageResponse = await requestFromYouzhaoPage(
         youzhaoPage,
         input,
         buildPageFetchHeaders(init.headers),
+        nativePositionsRequest?.authHeaderNames ?? [],
         DEFAULT_TIMEOUT_MS,
       );
+      const authStatus = pageResponse.diagnostics?.finalAuthStatus;
+      const requestMode: YouzhaoRequestMode = pageResponse.diagnostics?.authenticatedFetchHttpStatus
+        ? "page-auth-fetch"
+        : "page-fetch";
       const diagnostics: YouzhaoSessionDiagnostics = {
         ...initialDiagnostics,
-        requestMode: "page-fetch",
+        ...pageResponse.diagnostics,
+        requestMode,
         httpStatus: pageResponse.status,
         contentType: headerValue(pageResponse.headers, "content-type"),
         responseUrl: sanitizeUrlPath(pageResponse.url),
+        nativePositionsRequest,
       };
       store.lastDiagnostics = diagnostics;
       const responseHeaders = new Headers(pageResponse.headers);
-      responseHeaders.set("x-dingmap-youzhao-request-mode", "page-fetch");
+      responseHeaders.set("x-dingmap-youzhao-request-mode", requestMode);
+      if (authStatus) {
+        responseHeaders.set("x-dingmap-youzhao-auth-status", authStatus);
+      }
       return new Response(pageResponse.body, {
         status: pageResponse.status,
         headers: responseHeaders,
@@ -299,25 +360,119 @@ async function requestFromYouzhaoPage(
   page: YouzhaoPersistentPage,
   input: RequestInfo | URL,
   headers: Record<string, string>,
+  nativeAuthHeaderNames: string[],
   timeoutMs: number,
 ): Promise<PageFetchResult> {
   const path = toYouzhaoRelativePath(input);
   return withRequestTimeout(
     page.evaluate!(
-      async ({ path: requestPath, headers: requestHeaders }) => {
-        const response = await fetch(requestPath, {
+      async ({ path: requestPath, headers: requestHeaders, nativeAuthHeaderNames: nativeHeaders }) => {
+        const text = document.body?.innerText ?? "";
+        const pagePathname = window.location.pathname;
+        const businessFeatureFlags = {
+          positionManagementVisible: text.includes("\u5c97\u4f4d\u7ba1\u7406"),
+          positionListVisible: text.includes("\u5c97\u4f4d\u5217\u8868"),
+          businessTextVisible: /\u5c97\u4f4d|\u62db\u8058|\u7ad9\u70b9/.test(text),
+        };
+        const businessPageVisible = !/login|signin/i.test(pagePathname) &&
+          Object.values(businessFeatureFlags).some(Boolean);
+        const localStorageKeys = Object.keys(localStorage);
+        const sessionStorageKeys = Object.keys(sessionStorage);
+        const sensitiveStorageKeyHints = [...localStorageKeys, ...sessionStorageKeys]
+          .filter((key) => /token|authorization|jwt|session/i.test(key))
+          .sort();
+
+        const bareResponse = await fetch(requestPath, {
           method: "GET",
           credentials: "include",
           headers: requestHeaders,
         });
+        const bareBody = await bareResponse.text();
+        const baseDiagnostics = {
+          pagePathname,
+          businessPageVisible,
+          pageRefreshPreservedLogin: businessPageVisible,
+          businessFeatureFlags,
+          bareFetchHttpStatus: bareResponse.status,
+          localStorageKeys,
+          sessionStorageKeys,
+          sensitiveStorageKeyHints,
+          tokenStayedInPage: true,
+        };
+
+        if (bareResponse.status !== 401 || !businessPageVisible) {
+          return {
+            status: bareResponse.status,
+            headers: Object.fromEntries(bareResponse.headers.entries()),
+            body: bareBody,
+            url: bareResponse.url,
+            diagnostics: {
+              ...baseDiagnostics,
+              finalAuthStatus: bareResponse.status === 401 ? "requires_login" : undefined,
+            },
+          };
+        }
+
+        const storageCandidates = [
+          ...localStorageKeys.map((key) => ({ area: "local" as const, key })),
+          ...sessionStorageKeys.map((key) => ({ area: "session" as const, key })),
+        ].filter(({ key }) => /token|authorization|jwt|session/i.test(key));
+        const tokenEntry = storageCandidates.find(({ area, key }) => {
+          const value = area === "local" ? localStorage.getItem(key) : sessionStorage.getItem(key);
+          return Boolean(value);
+        });
+        const authHeaderName = nativeHeaders.find((header) => /authorization|token/i.test(header)) ?? "";
+
+        if (!tokenEntry || !authHeaderName) {
+          return {
+            status: bareResponse.status,
+            headers: Object.fromEntries(bareResponse.headers.entries()),
+            body: bareBody,
+            url: bareResponse.url,
+            diagnostics: {
+              ...baseDiagnostics,
+              finalAuthStatus: "auth_mechanism_unknown",
+            },
+          };
+        }
+
+        const tokenValue = tokenEntry.area === "local"
+          ? localStorage.getItem(tokenEntry.key)
+          : sessionStorage.getItem(tokenEntry.key);
+        const authHeaders = { ...requestHeaders };
+        if (authHeaderName.toLowerCase() === "authorization") {
+          authHeaders[authHeaderName] = tokenValue?.match(/^Bearer\s+/i) ? tokenValue : `Bearer ${tokenValue}`;
+        } else {
+          authHeaders[authHeaderName] = tokenValue ?? "";
+        }
+
+        const authedResponse = await fetch(requestPath, {
+          method: "GET",
+          credentials: "include",
+          headers: authHeaders,
+        });
+        const authedBody = await authedResponse.text();
         return {
-          status: response.status,
-          headers: Object.fromEntries(response.headers.entries()),
-          body: await response.text(),
-          url: response.url,
+          status: authedResponse.status,
+          headers: Object.fromEntries(authedResponse.headers.entries()),
+          body: authedBody,
+          url: authedResponse.url,
+          diagnostics: {
+            ...baseDiagnostics,
+            authenticatedFetchHttpStatus: authedResponse.status,
+            authHeaderNames: [authHeaderName.toLowerCase()],
+            authStorageKeyUsed: tokenEntry.key,
+            finalAuthStatus: authedResponse.status === 401
+              ? "auth_failed"
+              : authedResponse.status === 403
+                ? "auth_failed"
+                : authedResponse.ok
+                  ? "authenticated"
+                  : undefined,
+          },
         };
       },
-      { path, headers },
+      { path, headers, nativeAuthHeaderNames },
     ),
     timeoutMs,
   );
@@ -343,6 +498,96 @@ async function withRequestTimeout<T>(promise: Promise<T>, timeoutMs: number): Pr
       clearTimeout(timeoutId);
     }
   }
+}
+
+async function captureNativePositionsRequestSummary(
+  page: YouzhaoPersistentPage,
+  timeoutMs: number,
+): Promise<YouzhaoNativeRequestSummary | undefined> {
+  if (!page.on || !page.off) {
+    return undefined;
+  }
+
+  let requestSummary: YouzhaoNativeRequestSummary | undefined;
+  const onRequest = (event: unknown) => {
+    const url = callStringMethod(event, "url");
+    if (!url || !isPositionsUrl(url)) {
+      return;
+    }
+    const parsedUrl = new URL(url);
+    const requestHeaderNames = Object.keys(callRecordMethod(event, "headers")).map((header) => header.toLowerCase()).sort();
+    requestSummary = {
+      method: callStringMethod(event, "method") || "GET",
+      pathname: parsedUrl.pathname,
+      queryParamNames: Array.from(parsedUrl.searchParams.keys()).sort(),
+      requestHeaderNames,
+      authHeaderNames: requestHeaderNames.filter(isAuthRelatedHeader),
+      differentFromBareFetchHeaderNames: requestHeaderNames
+        .filter((header) => !["accept", "accept-language", "referer", "user-agent"].includes(header))
+        .sort(),
+    };
+  };
+  const onResponse = (event: unknown) => {
+    const url = callStringMethod(event, "url");
+    if (!url || !isPositionsUrl(url) || !requestSummary) {
+      return;
+    }
+    requestSummary.httpStatus = callNumberMethod(event, "status");
+  };
+
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+  try {
+    await page.reload?.({ waitUntil: "domcontentloaded", timeout: Math.min(timeoutMs, 5_000) });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    return requestSummary;
+  } finally {
+    page.off("request", onRequest);
+    page.off("response", onResponse);
+  }
+}
+
+function isPositionsUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.hostname === YOUZHAO_HOST && url.pathname === "/api/positions";
+  } catch {
+    return false;
+  }
+}
+
+function callStringMethod(target: unknown, method: string): string {
+  if (!target || typeof target !== "object" || !(method in target)) {
+    return "";
+  }
+  const value = (target as Record<string, unknown>)[method];
+  return typeof value === "function" ? String(value.call(target)) : "";
+}
+
+function callNumberMethod(target: unknown, method: string): number | undefined {
+  if (!target || typeof target !== "object" || !(method in target)) {
+    return undefined;
+  }
+  const value = (target as Record<string, unknown>)[method];
+  if (typeof value !== "function") {
+    return undefined;
+  }
+  const result = value.call(target);
+  return typeof result === "number" ? result : undefined;
+}
+
+function callRecordMethod(target: unknown, method: string): Record<string, string> {
+  if (!target || typeof target !== "object" || !(method in target)) {
+    return {};
+  }
+  const value = (target as Record<string, unknown>)[method];
+  if (typeof value !== "function") {
+    return {};
+  }
+  const result = value.call(target);
+  return typeof result === "object" && result !== null && !Array.isArray(result)
+    ? result as Record<string, string>
+    : {};
 }
 
 function findYouzhaoPage(pages: YouzhaoPersistentPage[]): YouzhaoPersistentPage | null {
@@ -444,6 +689,10 @@ function isSensitiveHeader(key: string): boolean {
   return ["authorization", "cookie", "set-cookie", "token", "x-api-key"].includes(key.toLowerCase());
 }
 
+function isAuthRelatedHeader(key: string): boolean {
+  return /authorization|token|cookie|session|jwt/i.test(key);
+}
+
 function headerValue(headers: Record<string, string>, key: string): string | undefined {
   const found = Object.entries(headers).find(([headerKey]) => headerKey.toLowerCase() === key.toLowerCase());
   return found?.[1];
@@ -486,7 +735,9 @@ function mapClientStatusToSessionStatus(status: YouzhaoApiStatus): YouzhaoSessio
     status === "forbidden" ||
     status === "blocked" ||
     status === "timeout" ||
-    status === "schema_changed"
+    status === "schema_changed" ||
+    status === "auth_mechanism_unknown" ||
+    status === "auth_failed"
   ) {
     return status;
   }

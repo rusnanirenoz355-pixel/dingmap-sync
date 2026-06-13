@@ -8,6 +8,8 @@ export type YouzhaoApiStatus =
   | "schema_changed"
   | "blocked"
   | "timeout"
+  | "auth_mechanism_unknown"
+  | "auth_failed"
   | "failed";
 
 export interface YouzhaoQueryInput {
@@ -291,9 +293,17 @@ async function fetchYouzhaoPage(
     });
     const contentType = response.headers.get("content-type") ?? "";
     const diagnostics = buildResponseDiagnostics(response, contentType);
+    const authStatus = response.headers.get("x-dingmap-youzhao-auth-status");
 
     if (response.status === 401) {
-      return { status: "requires_login", total: null, items: [], diagnostics };
+      return {
+        status: authStatus === "auth_failed" || authStatus === "auth_mechanism_unknown"
+          ? authStatus
+          : "requires_login",
+        total: null,
+        items: [],
+        diagnostics,
+      };
     }
     if (response.status === 403) {
       return { status: "forbidden", total: null, items: [], diagnostics };

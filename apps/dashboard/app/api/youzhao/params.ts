@@ -25,6 +25,12 @@ export function httpStatusForYouzhaoStatus(status: YouzhaoApiStatus | YouzhaoSes
   if (status === "requires_login") {
     return 401;
   }
+  if (status === "auth_failed") {
+    return 401;
+  }
+  if (status === "auth_mechanism_unknown") {
+    return 400;
+  }
   if (status === "forbidden") {
     return 403;
   }
