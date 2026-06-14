@@ -50,4 +50,21 @@ describe("youzhao Dashboard preview UI", () => {
       expect(source).toContain(text);
     });
   });
+
+  it("shows Task 007-B smoke task controls without enabling automatic full runs", () => {
+    [
+      "启动 smoke",
+      "启动 full",
+      "暂停任务",
+      "继续任务",
+      "取消任务",
+      "重启任务",
+      "暂停或取消将在当前页处理完成后生效",
+      "部分数据导出",
+      "/api/youzhao/tasks/start",
+      "/api/youzhao/tasks/current",
+    ].forEach((text) => {
+      expect(source).toContain(text);
+    });
+  });
 });

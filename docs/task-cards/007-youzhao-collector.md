@@ -129,3 +129,85 @@ Playwright persistent context 人工登录
 * A1 commit：`58e2f21`
 * A2 已完成代码与自动化测试。
 * 真实优招 smoke 需要用户手动登录后执行；当前未提交任何真实优招数据。
+
+## B：单城市全量采集能力与 smoke 保护
+
+### 目标
+
+实现单城市采集任务编排能力，但本阶段真实运行只允许：
+
+```text
+mode = smoke
+city = 杭州
+pageSize = 20
+maxPages = 2
+maxItems = 40
+```
+
+杭州 full run 必须等本阶段完成、提交、推送并输出报告后，由用户再次明确批准。
+
+### 已完成
+
+* 新增 `mode = smoke | full`。
+* `smoke` 固定最多 2 页 / 40 条，完成后状态为 `smoke_completed`，不会自动切换 full。
+* `full` 必须传入二次确认和 API 总数，未确认时服务端拒绝启动。
+* 新增任务状态：`idle`、`running`、`paused`、`completed`、`smoke_completed`、`failed`、`requires_login`、`forbidden`、`blocked`、`schema_changed`、`timeout`、`cancelled`、`count_mismatch`。
+* 每页继续复用 `importCleanMarkers()`，并通过 `updateCandidates: "skip"` 防止自动覆盖 update_candidate。
+* `pause` / `cancel` 只在当前页 HTTP、mapper、DB import、checkpoint 写入完成后生效。
+* `resume` 前重新执行 session check，只有 authenticated 才继续。
+* checkpoint 写入 `data/youzhao/checkpoints/<encodeURIComponent(city)>.json`，仅保存 sourceId 的 SHA-256 hash，不保存原始 sourceId 或业务字段。
+* current task state 写入同一 ignored 目录，仅保存脱敏状态和计数，供 `/api/youzhao/tasks/current` 跨 route bundle 读取。
+* `failedPages` 只保存 `{ page, attempts, status }`，不保存响应体、header、cookie 或业务数据。
+* 重试间隔为 1s / 3s / 8s，测试使用可注入 sleep，不真实等待。
+* 新增 tasks API：
+  * `POST /api/youzhao/tasks/start`
+  * `POST /api/youzhao/tasks/pause`
+  * `POST /api/youzhao/tasks/resume`
+  * `POST /api/youzhao/tasks/cancel`
+  * `POST /api/youzhao/tasks/restart`
+  * `GET /api/youzhao/tasks/current`
+* tasks API 响应不返回 rows、rawRows、cleanMarkers、完整业务字段、token 或 cookie。
+* A3 导出复用增加 `partial` 文件名标记，smoke 导出文件名包含 `部分数据`，full 完成导出不包含该标记。
+* Dashboard 增加单城市任务控制区和“部分数据导出”按钮。
+
+### 计数规则
+
+full 模式一致性检查：
+
+```text
+API 招聘中 total = imported + duplicate + update_candidate + invalid
+```
+
+`filteredNonRecruiting` 单独统计，不进入 full 一致性公式。`update_candidate` 不计为 imported 或 updated。
+
+smoke 模式只检查：
+
+```text
+实际处理数量 = imported + duplicate + update_candidate + invalid
+```
+
+### 不做范围
+
+* 不执行杭州 full run。
+* 不自动遍历城市。
+* 不写 JSON / HAR / HTML / 截图 / 真实响应日志。
+* 不保存账号密码、cookie、token 或浏览器 profile 到 Git。
+* 不自动上传钉图。
+* 不覆盖 update_candidate。
+
+### 测试补充
+
+新增或更新：
+
+* `packages/db/youzhao-collection-task.test.ts`
+* `apps/dashboard/app/api/youzhao/youzhao-task-routes.test.ts`
+* `apps/dashboard/app/dashboard-youzhao-ui.test.ts`
+* `packages/db/import-clean-markers.test.ts`
+* `packages/db/youzhao-dingmap-export.test.ts`
+* `apps/dashboard/app/api/youzhao/youzhao-export-routes.test.ts`
+
+### 当前状态
+
+* Task 007-B 已完成自动化测试和类型检查阶段。
+* 真实 smoke 待最终验证阶段执行，最多 40 条。
+* 是否已执行杭州全量：否。

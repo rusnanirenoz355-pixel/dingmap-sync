@@ -56,6 +56,13 @@ type CleanMarkerDbRow = {
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_EXPORT_DIR = join(PROJECT_ROOT, "data", "exports");
+const YOUZHAO_SAFE_EXPORT_LAYERS = new Set([
+  "美团点",
+  "淘宝点",
+  "买菜点",
+  "其他点",
+  "商超点",
+]);
 
 export async function exportDingmapOneClickTemplate(
   options: DingmapExportOptions = {},
@@ -124,10 +131,12 @@ export function isSafeDingmapExportFilename(filename: string): boolean {
     return false;
   }
 
-  return (
-    /^dingmap-import-\d{8}-\d{6}\.xlsx$/.test(filename) ||
-    /^优招-[^\\/:*?"<>|\r\n]+-(美团点|淘宝点|买菜点|其他点|商超点)(-第[1-9]\d*批)?(-[1-9]\d*)?\.xlsx$/u.test(filename)
-  );
+  if (/^dingmap-import-\d{8}-\d{6}\.xlsx$/.test(filename)) {
+    return true;
+  }
+
+  const youzhaoMatch = /^优招-[^\\/:*?"<>|\r\n]+-([^\\/:*?"<>|\r\n-]+)(?:-部分数据)?(?:-第[1-9]\d*批)?(?:-[1-9]\d*)?\.xlsx$/u.exec(filename);
+  return Boolean(youzhaoMatch?.[1] && YOUZHAO_SAFE_EXPORT_LAYERS.has(youzhaoMatch[1]));
 }
 
 export function resolveDingmapExportFilePath(

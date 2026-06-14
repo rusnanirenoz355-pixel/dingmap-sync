@@ -27,6 +27,10 @@ export interface ImportCleanMarkersResult {
   cleanMarkers: CleanMarker[];
 }
 
+export interface ImportCleanMarkersOptions {
+  updateCandidates?: "update" | "skip";
+}
+
 type CleanMarkerDbRow = {
   id: number;
   source: string;
@@ -73,6 +77,7 @@ export function previewRawImportRows(rows: RawImportRow[]): ImportPreviewResult 
 
 export function importCleanMarkers(
   rows: Array<RawImportRow | ImportPreviewRow>,
+  options: ImportCleanMarkersOptions = {},
 ): ImportCleanMarkersResult {
   const database = openDatabase();
   const result: Omit<ImportCleanMarkersResult, "cleanMarkers"> = {
@@ -114,6 +119,9 @@ export function importCleanMarkers(
 
       if (revalidated.status === "update_candidate") {
         result.updateCandidate += 1;
+        if (options.updateCandidates === "skip") {
+          continue;
+        }
         writeRawRecord(database, revalidated);
         updateCleanMarker(database, revalidated);
         result.updated += 1;

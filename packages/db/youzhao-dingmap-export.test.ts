@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DINGMAP_IMPORT_HEADERS } from "@dingmap-sync/dingmap/export-template";
 import {
   buildYouzhaoBatchFilenames,
+  buildYouzhaoExportFilename,
   exportYouzhaoDingmapTemplates,
 } from "./youzhao-dingmap-export";
 
@@ -146,6 +147,28 @@ describe("youzhao DingMap grouped export", () => {
       "优招-杭州-商超点-第1批.xlsx",
       "优招-杭州-商超点-第2批.xlsx",
       "优招-杭州-商超点-第3批.xlsx",
+    ]);
+  });
+
+  it("marks smoke exports as partial data without changing full filenames", () => {
+    expect(buildYouzhaoExportFilename({
+      city: "\u676d\u5dde",
+      targetLayer: "\u7f8e\u56e2\u70b9",
+      partial: true,
+    })).toBe("\u4f18\u62db-\u676d\u5dde-\u7f8e\u56e2\u70b9-\u90e8\u5206\u6570\u636e.xlsx");
+    expect(buildYouzhaoExportFilename({
+      city: "\u676d\u5dde",
+      targetLayer: "\u7f8e\u56e2\u70b9",
+      partial: false,
+    })).toBe("\u4f18\u62db-\u676d\u5dde-\u7f8e\u56e2\u70b9.xlsx");
+    expect(buildYouzhaoBatchFilenames({
+      city: "\u676d\u5dde",
+      targetLayer: "\u5546\u8d85\u70b9",
+      rowCount: 2001,
+      partial: true,
+    })).toEqual([
+      "\u4f18\u62db-\u676d\u5dde-\u5546\u8d85\u70b9-\u90e8\u5206\u6570\u636e-\u7b2c1\u6279.xlsx",
+      "\u4f18\u62db-\u676d\u5dde-\u5546\u8d85\u70b9-\u90e8\u5206\u6570\u636e-\u7b2c2\u6279.xlsx",
     ]);
   });
 

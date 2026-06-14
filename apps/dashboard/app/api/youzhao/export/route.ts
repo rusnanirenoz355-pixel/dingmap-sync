@@ -10,7 +10,9 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: "必须选择一个城市后再导出。" }, { status: 400 });
     }
 
-    const result = await exportYouzhaoDingmapTemplates({ city });
+    const result = await exportYouzhaoDingmapTemplates(
+      body.partial === true ? { city, partial: true } : { city },
+    );
     return Response.json(result);
   } catch (error) {
     return Response.json(

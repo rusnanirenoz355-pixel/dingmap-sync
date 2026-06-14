@@ -692,3 +692,48 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 * 真实 smoke 需要用户在优招窗口手动登录后执行；当前自动化测试使用合成响应。
 * 优招接口真实 schema 若变化，会返回 `schema_changed`，需要按实际响应更新 mapper。
 * A2 不做 A3 的城市 / 图层拆分 Excel。
+
+## 任务卡 007-B：单城市采集任务与 smoke 保护
+
+### 当前状态
+
+已实现优招单城市采集任务编排能力。Task 007-B 只允许真实执行杭州 smoke，固定最多 2 页 / 40 条；杭州 full run 必须等待本阶段完成、提交、推送并输出报告后，由用户再次明确批准。
+
+### 已完成
+
+* 新增 `packages/db/youzhao-collection-task.ts`。
+* 新增 `mode = smoke | full`。
+* `smoke` 固定 `pageSize = 20`、`maxPages = 2`、`maxItems = 40`，完成状态为 `smoke_completed`。
+* `full` 必须二次确认并提供 API total，未确认时拒绝启动。
+* 新增任务状态：`idle`、`running`、`paused`、`completed`、`smoke_completed`、`failed`、`requires_login`、`forbidden`、`blocked`、`schema_changed`、`timeout`、`cancelled`、`count_mismatch`。
+* 每页复用公共 pipeline 和 `importCleanMarkers()`，并使用 `updateCandidates: "skip"`，不自动覆盖 update_candidate。
+* pause / cancel 在当前页请求、mapper、DB import、checkpoint 写入完成后生效。
+* resume 前重新执行 session check，非 authenticated 不推进页码。
+* checkpoint 写入 `data/youzhao/checkpoints/<safe-city>.json`，仅保存 `processedSourceIdHashes`，不保存原始 sourceId 或业务字段。
+* current task state 写入同一 ignored 目录，仅保存脱敏状态和计数，供 Dashboard 刷新后读取。
+* `failedPages` 仅保存 page / attempts / status。
+* 重试间隔为 1s / 3s / 8s，测试通过 injectable sleep 避免真实等待。
+* 新增 tasks API：start / pause / resume / cancel / restart / current。
+* tasks API 响应不返回 rows、rawRows、cleanMarkers、业务字段、cookie 或 token。
+* Dashboard 增加单城市任务控制区。
+* A3 导出复用增加 `partial` 标记，smoke 导出文件名包含 `部分数据`。
+
+### 不做范围确认
+
+* 不执行杭州 full run。
+* 不自动遍历城市。
+* 不保存真实响应 JSON / HAR / HTML / 截图。
+* 不提交 DB、导出文件、browser profile、cookie 或 token。
+* 不自动上传钉图。
+
+### 当前验证
+
+* 相关单元测试和 API route 测试已通过。
+* `corepack pnpm check` 已通过。
+* 完整 `check / lint / test / verify` 待最终收口执行。
+
+### 当前风险
+
+* 真实 smoke 会写入本地 Clean Table，最多 40 条，数据不得提交到 Git。
+* full 能力已受确认保护，但实际杭州 full 尚未执行。
+* 是否已执行杭州全量：否。

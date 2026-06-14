@@ -1,0 +1,13 @@
+import { cancelYouzhaoCollectionTask } from "@dingmap-sync/db/youzhao-collection-task";
+import { readJsonBody, requireCity, runtime, taskErrorResponse, taskResponse } from "../shared";
+
+export { runtime };
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const body = await readJsonBody(request);
+    return taskResponse(cancelYouzhaoCollectionTask(requireCity(body)));
+  } catch (error) {
+    return taskErrorResponse(error);
+  }
+}

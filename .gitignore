@@ -13,6 +13,7 @@ data/exports/
 data/temp/
 data/browser-profile/
 data/debug/
+apps/dashboard/data/
 *.har
 uploads/
 exports/

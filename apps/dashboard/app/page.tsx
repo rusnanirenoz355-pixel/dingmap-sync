@@ -119,6 +119,31 @@ interface YouzhaoExportResult {
   error?: string;
 }
 
+interface YouzhaoTaskState {
+  city: string;
+  mode: "smoke" | "full";
+  status: string;
+  currentPage: number;
+  nextPage: number;
+  pageSize: number;
+  maxPages?: number;
+  maxItems?: number;
+  processedPages: number;
+  processedItems: number;
+  totalFromApi: number | null;
+  counts: {
+    imported: number;
+    duplicate: number;
+    update_candidate: number;
+    invalid: number;
+    filteredNonRecruiting: number;
+  };
+  targetLayerCounts: Record<string, number>;
+  failedPages: Array<{ page: number; attempts: number; status: string }>;
+  lastErrorStatus?: string;
+  error?: string;
+}
+
 interface CleanMarkerManagementStatistics {
   activeCount: number;
   anomalyCount: number;
@@ -140,6 +165,11 @@ type LoadingState =
   | "youzhao-preview"
   | "youzhao-import"
   | "youzhao-export"
+  | "youzhao-task-start"
+  | "youzhao-task-pause"
+  | "youzhao-task-resume"
+  | "youzhao-task-cancel"
+  | "youzhao-task-restart"
   | "clean"
   | "export"
   | null;
@@ -178,6 +208,7 @@ export default function DashboardPage() {
   const [youzhaoExportResult, setYouzhaoExportResult] =
     useState<YouzhaoExportResult | null>(null);
   const [youzhaoExportErrorMsg, setYouzhaoExportErrorMsg] = useState<string | null>(null);
+  const [youzhaoTask, setYouzhaoTask] = useState<YouzhaoTaskState | null>(null);
 
   const [cleanMarkers, setCleanMarkers] = useState<CleanMarker[]>([]);
   const [managementStats, setManagementStats] =
@@ -245,6 +276,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void loadCleanMarkers();
+    void loadYouzhaoTask();
   }, []);
 
   async function loadCleanMarkers() {
@@ -488,7 +520,7 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleYouzhaoExport() {
+  async function handleYouzhaoExport(partial = false) {
     setYouzhaoExportErrorMsg(null);
     setYouzhaoExportResult(null);
     setLoading("youzhao-export");
@@ -496,7 +528,7 @@ export default function DashboardPage() {
       const response = await fetch("/api/youzhao/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ city: youzhaoCity }),
+        body: JSON.stringify(partial ? { city: youzhaoCity, partial: true } : { city: youzhaoCity }),
       });
       const data = (await response.json()) as YouzhaoExportResult;
       if (!response.ok) {
@@ -505,6 +537,109 @@ export default function DashboardPage() {
       setYouzhaoExportResult(data);
     } catch (error) {
       setYouzhaoExportErrorMsg(error instanceof Error ? error.message : "优招钉图 Excel 导出失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function loadYouzhaoTask() {
+    try {
+      const response = await fetch("/api/youzhao/tasks/current", { cache: "no-store" });
+      const data = (await response.json()) as YouzhaoTaskState;
+      if (response.ok) {
+        setYouzhaoTask(data);
+      }
+    } catch {
+      // Keep the normal dashboard usable when no task state is available.
+    }
+  }
+
+  async function handleYouzhaoTaskSmokeStart() {
+    await requestYouzhaoTask("/api/youzhao/tasks/start", "youzhao-task-start", {
+      city: youzhaoCity,
+      mode: "smoke",
+    });
+  }
+
+  async function handleYouzhaoTaskFullStart() {
+    const city = youzhaoCity.trim();
+    const confirmedTotal = youzhaoResult?.total ?? youzhaoTask?.totalFromApi;
+    if (!city) {
+      setYouzhaoErrorMsg("请先选择一个城市。");
+      return;
+    }
+    if (!Number.isFinite(confirmedTotal ?? NaN)) {
+      setYouzhaoErrorMsg("请先探测接口，确认当前城市 API 总数后再启动 full。");
+      return;
+    }
+    const confirmed = window.confirm(
+      `确认启动 full：城市 ${city}，API 总数 ${confirmedTotal}。full 会采集当前城市全部招聘中岗位。`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    await requestYouzhaoTask("/api/youzhao/tasks/start", "youzhao-task-start", {
+      city,
+      mode: "full",
+      confirmed: true,
+      confirmedTotal,
+      pageSize: Number(youzhaoPageSize),
+    });
+  }
+
+  async function handleYouzhaoTaskPause() {
+    await requestYouzhaoTask("/api/youzhao/tasks/pause", "youzhao-task-pause", { city: youzhaoCity });
+  }
+
+  async function handleYouzhaoTaskResume() {
+    await requestYouzhaoTask("/api/youzhao/tasks/resume", "youzhao-task-resume", { city: youzhaoCity });
+  }
+
+  async function handleYouzhaoTaskCancel() {
+    await requestYouzhaoTask("/api/youzhao/tasks/cancel", "youzhao-task-cancel", { city: youzhaoCity });
+  }
+
+  async function handleYouzhaoTaskRestart() {
+    const city = youzhaoCity.trim();
+    if (!city) {
+      setYouzhaoErrorMsg("请先选择一个城市。");
+      return;
+    }
+    const confirmed = window.confirm(`确认重启任务：城市 ${city}。仅删除当前城市 checkpoint，不删除数据库数据。`);
+    if (!confirmed) {
+      return;
+    }
+    await requestYouzhaoTask("/api/youzhao/tasks/restart", "youzhao-task-restart", {
+      city,
+      confirmed: true,
+    });
+  }
+
+  async function requestYouzhaoTask(
+    endpoint: string,
+    loadingState: Exclude<LoadingState, null>,
+    body: Record<string, unknown>,
+  ): Promise<YouzhaoTaskState | null> {
+    setYouzhaoErrorMsg(null);
+    setLoading(loadingState);
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await response.json()) as YouzhaoTaskState;
+      setYouzhaoTask(data);
+      if (!response.ok && data.status !== "count_mismatch") {
+        throw new Error(data.error ?? data.lastErrorStatus ?? `优招任务失败：${data.status}`);
+      }
+      if (["smoke_completed", "completed", "count_mismatch", "paused", "cancelled"].includes(data.status)) {
+        void loadCleanMarkers();
+      }
+      return data;
+    } catch (error) {
+      setYouzhaoErrorMsg(error instanceof Error ? error.message : "优招任务失败。");
+      return null;
     } finally {
       setLoading(null);
     }
@@ -659,12 +794,19 @@ export default function DashboardPage() {
           onPageSizeChange={setYouzhaoPageSize}
           onPreview={handleYouzhaoPreview}
           onProbe={handleYouzhaoProbe}
+          onTaskCancel={handleYouzhaoTaskCancel}
+          onTaskFullStart={handleYouzhaoTaskFullStart}
+          onTaskPause={handleYouzhaoTaskPause}
+          onTaskRestart={handleYouzhaoTaskRestart}
+          onTaskResume={handleYouzhaoTaskResume}
+          onTaskSmokeStart={handleYouzhaoTaskSmokeStart}
           page={youzhaoPage}
           pageSize={youzhaoPageSize}
           result={youzhaoResult}
           rows={youzhaoPreviewRows}
           sessionStatus={youzhaoSessionStatus}
           summary={youzhaoSummary}
+          task={youzhaoTask}
         />
 
         <section className="grid min-w-0 gap-4 lg:grid-cols-[0.82fr_1.18fr]">
@@ -916,12 +1058,19 @@ function YouzhaoPanel({
   onPageSizeChange,
   onPreview,
   onProbe,
+  onTaskCancel,
+  onTaskFullStart,
+  onTaskPause,
+  onTaskRestart,
+  onTaskResume,
+  onTaskSmokeStart,
   page,
   pageSize,
   result,
   rows,
   sessionStatus,
   summary,
+  task,
 }: {
   city: string;
   errorMsg: string | null;
@@ -933,7 +1082,7 @@ function YouzhaoPanel({
   loading: LoadingState;
   onCheck: () => void;
   onCityChange: (value: string) => void;
-  onExport: () => void;
+  onExport: (partial?: boolean) => void;
   onImport: () => void;
   onLimitChange: (value: string) => void;
   onOpen: () => void;
@@ -941,12 +1090,19 @@ function YouzhaoPanel({
   onPageSizeChange: (value: string) => void;
   onPreview: () => void;
   onProbe: () => void;
+  onTaskCancel: () => void;
+  onTaskFullStart: () => void;
+  onTaskPause: () => void;
+  onTaskRestart: () => void;
+  onTaskResume: () => void;
+  onTaskSmokeStart: () => void;
   page: string;
   pageSize: string;
   result: YouzhaoOperationResult | null;
   rows: ImportPreviewRow[];
   sessionStatus: string;
   summary: PreviewSummary;
+  task: YouzhaoTaskState | null;
 }) {
   const targetLayerCounts = result?.targetLayerCounts ?? {};
 
@@ -1065,6 +1221,94 @@ function YouzhaoPanel({
         </div>
       ) : null}
 
+      <section className="mt-4 rounded-card border border-line bg-white p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold">单城市采集任务</h3>
+            <p className="mt-1 text-sm text-textSubtle">
+              smoke 固定最多 2 页 / 40 条；暂停或取消将在当前页处理完成后生效
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              disabled={loading === "youzhao-task-start" || !city.trim()}
+              onClick={onTaskSmokeStart}
+              type="button"
+            >
+              {loading === "youzhao-task-start" ? (
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play aria-hidden="true" className="h-4 w-4" />
+              )}
+              <span>启动 smoke</span>
+            </button>
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={loading === "youzhao-task-start" || !city.trim()}
+              onClick={onTaskFullStart}
+              type="button"
+            >
+              <Play aria-hidden="true" className="h-4 w-4" />
+              <span>启动 full</span>
+            </button>
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={loading === "youzhao-task-pause" || !city.trim()}
+              onClick={onTaskPause}
+              type="button"
+            >
+              <span>暂停任务</span>
+            </button>
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={loading === "youzhao-task-resume" || !city.trim()}
+              onClick={onTaskResume}
+              type="button"
+            >
+              <RefreshCw aria-hidden="true" className="h-4 w-4" />
+              <span>继续任务</span>
+            </button>
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={loading === "youzhao-task-cancel" || !city.trim()}
+              onClick={onTaskCancel}
+              type="button"
+            >
+              <XCircle aria-hidden="true" className="h-4 w-4" />
+              <span>取消任务</span>
+            </button>
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={loading === "youzhao-task-restart" || !city.trim()}
+              onClick={onTaskRestart}
+              type="button"
+            >
+              <RotateCcw aria-hidden="true" className="h-4 w-4" />
+              <span>重启任务</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <ResultPill label="任务状态" value={task?.status ?? "idle"} tone="text-slate-800" />
+          <ResultPill label="模式" value={task?.mode ?? "smoke"} tone="text-slate-800" />
+          <ResultPill label="已处理页" value={task?.processedPages ?? 0} tone="text-blue-700" />
+          <ResultPill label="已处理条" value={task?.processedItems ?? 0} tone="text-emerald-700" />
+          <ResultPill label="新增" value={task?.counts.imported ?? 0} tone="text-emerald-700" />
+          <ResultPill label="重复" value={task?.counts.duplicate ?? 0} tone="text-slate-600" />
+          <ResultPill label="待更新" value={task?.counts.update_candidate ?? 0} tone="text-blue-700" />
+          <ResultPill label="无效" value={task?.counts.invalid ?? 0} tone="text-red-700" />
+        </div>
+        {task && Object.keys(task.targetLayerCounts).length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2 text-sm">
+            {Object.entries(task.targetLayerCounts).map(([layer, count]) => (
+              <ResultPill key={layer} label={layer} value={count} tone="text-slate-800" />
+            ))}
+          </div>
+        ) : null}
+      </section>
+
       {typeof result?.inserted === "number" ? (
         <div className="mt-3 grid gap-2 text-sm sm:grid-cols-5">
           <ResultPill label="新增" value={result.inserted} tone="text-emerald-700" />
@@ -1083,19 +1327,30 @@ function YouzhaoPanel({
               当前城市：{city.trim() || "未选择"}
             </p>
           </div>
-          <button
-            className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-            disabled={loading === "youzhao-export" || !city.trim() || !hasCleanData}
-            onClick={onExport}
-            type="button"
-          >
-            {loading === "youzhao-export" ? (
-              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-            ) : (
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-tableHead disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={loading === "youzhao-export" || !city.trim() || !hasCleanData}
+              onClick={() => onExport(true)}
+              type="button"
+            >
               <Download aria-hidden="true" className="h-4 w-4" />
-            )}
-            <span>导出钉图 Excel</span>
-          </button>
+              <span>部分数据导出</span>
+            </button>
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              disabled={loading === "youzhao-export" || !city.trim() || !hasCleanData}
+              onClick={() => onExport()}
+              type="button"
+            >
+              {loading === "youzhao-export" ? (
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download aria-hidden="true" className="h-4 w-4" />
+              )}
+              <span>导出钉图 Excel</span>
+            </button>
+          </div>
         </div>
 
         {exportErrorMsg ? <ErrorBox message={exportErrorMsg} /> : null}

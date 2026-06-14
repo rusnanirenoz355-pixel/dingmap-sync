@@ -60,6 +60,28 @@ describe("youzhao DingMap export API routes", () => {
     expect(exportYouzhaoDingmapTemplates).toHaveBeenCalledWith({ city: "杭州" });
   });
 
+  it("passes partial data export mode only when requested", async () => {
+    vi.mocked(exportYouzhaoDingmapTemplates).mockResolvedValue({
+      city: "杭州",
+      totalRows: 20,
+      groups: [
+        {
+          targetLayer: "买菜点",
+          rowCount: 7,
+          files: ["优招-杭州-买菜点-部分数据.xlsx"],
+        },
+      ],
+    });
+
+    const response = await exportPost(jsonRequest({ city: "杭州", partial: true }));
+
+    expect(response.status).toBe(200);
+    expect(exportYouzhaoDingmapTemplates).toHaveBeenCalledWith({
+      city: "杭州",
+      partial: true,
+    });
+  });
+
   it("rejects missing city before exporting", async () => {
     const response = await exportPost(jsonRequest({ city: "" }));
     const json = await response.json() as { error: string };

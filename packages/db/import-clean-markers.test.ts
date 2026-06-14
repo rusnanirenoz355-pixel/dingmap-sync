@@ -98,6 +98,21 @@ describe("shared clean marker import database service", () => {
     expect(result.cleanMarkers[0]?.syncAction).toBe("update");
   });
 
+  it("can skip update candidates without mutating existing clean markers", () => {
+    importCleanMarkers([validManualRow()]);
+    const result = importCleanMarkers(
+      [validManualRow("Changed synthetic remark")],
+      { updateCandidates: "skip" },
+    );
+
+    expect(result.updated).toBe(0);
+    expect(result.updateCandidate).toBe(1);
+    expect(result.skippedOther).toBe(0);
+    expect(result.cleanMarkers).toHaveLength(1);
+    expect(result.cleanMarkers[0]?.remark).toBe("Synthetic remark");
+    expect(result.cleanMarkers[0]?.syncAction).toBe("create");
+  });
+
   it("revalidates raw rows and ignores forged client status", () => {
     const forged = {
       rowIndex: 3,

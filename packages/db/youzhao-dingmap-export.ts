@@ -14,6 +14,7 @@ export interface YouzhaoDingmapExportOptions {
   city: unknown;
   outputDir?: string;
   batchSize?: number;
+  partial?: boolean;
 }
 
 export interface YouzhaoDingmapExportGroup {
@@ -106,6 +107,7 @@ export async function exportYouzhaoDingmapTemplates(
         targetLayer: layer,
         rowCount: layerMarkers.length,
         batchSize,
+        partial: options.partial,
       });
       for (const [batchIndex, batch] of batches.entries()) {
         const filename = resolveUniqueFilename(
@@ -137,11 +139,13 @@ export function buildYouzhaoExportFilename(input: {
   city: string;
   targetLayer: DingmapTargetLayer;
   batchNumber?: number | null;
+  partial?: boolean;
 }): string {
   const city = sanitizeFilenamePart(input.city) || "未命名城市";
   const targetLayer = sanitizeFilenamePart(input.targetLayer);
+  const partialSuffix = input.partial ? "-部分数据" : "";
   const batchSuffix = input.batchNumber ? `-第${input.batchNumber}批` : "";
-  return `优招-${city}-${targetLayer}${batchSuffix}.xlsx`;
+  return `优招-${city}-${targetLayer}${partialSuffix}${batchSuffix}.xlsx`;
 }
 
 export function buildYouzhaoBatchFilenames(input: {
@@ -149,6 +153,7 @@ export function buildYouzhaoBatchFilenames(input: {
   targetLayer: DingmapTargetLayer;
   rowCount: number;
   batchSize?: number;
+  partial?: boolean;
 }): string[] {
   const batchSize = normalizeBatchSize(input.batchSize);
   const batchCount = Math.ceil(input.rowCount / batchSize);
@@ -157,6 +162,7 @@ export function buildYouzhaoBatchFilenames(input: {
       city: input.city,
       targetLayer: input.targetLayer,
       batchNumber: batchCount > 1 ? index + 1 : null,
+      partial: input.partial,
     }),
   );
 }
