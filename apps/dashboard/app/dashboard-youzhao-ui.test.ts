@@ -38,4 +38,16 @@ describe("youzhao Dashboard preview UI", () => {
       expect(source).toContain(column);
     });
   });
+
+  it("shows the minimal Youzhao DingMap export controls", () => {
+    [
+      "导出钉图 Excel",
+      "当前城市",
+      "生成文件",
+      "下载",
+      "/api/youzhao/export",
+    ].forEach((text) => {
+      expect(source).toContain(text);
+    });
+  });
 });

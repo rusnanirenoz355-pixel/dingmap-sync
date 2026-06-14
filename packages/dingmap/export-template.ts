@@ -35,8 +35,8 @@ function mapYouzhaoCleanMarkerToDingmapImportRow(marker: CleanMarker): DingmapIm
   return {
     标记名称: marker.siteName,
     详细地址: marker.address,
-    经度: marker.longitude ?? "",
-    纬度: marker.latitude ?? "",
+    经度: "",
+    纬度: "",
     备注: buildYouzhaoRemark(marker),
     字段一: [marker.stationManager?.trim(), marker.phone?.trim()].filter(Boolean).join(" "),
     字段二: marker.remark?.trim() ?? "",

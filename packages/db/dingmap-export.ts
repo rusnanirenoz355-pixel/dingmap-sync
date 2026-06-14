@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import type { CleanMarker } from "@dingmap-sync/shared";
@@ -120,7 +120,14 @@ export function filterExportableMarkers(markers: CleanMarker[]): CleanMarker[] {
 }
 
 export function isSafeDingmapExportFilename(filename: string): boolean {
-  return /^dingmap-import-\d{8}-\d{6}\.xlsx$/.test(filename);
+  if (filename !== basename(filename)) {
+    return false;
+  }
+
+  return (
+    /^dingmap-import-\d{8}-\d{6}\.xlsx$/.test(filename) ||
+    /^优招-[^\\/:*?"<>|\r\n]+-(美团点|淘宝点|买菜点|其他点|商超点)(-第[1-9]\d*批)?(-[1-9]\d*)?\.xlsx$/u.test(filename)
+  );
 }
 
 export function resolveDingmapExportFilePath(

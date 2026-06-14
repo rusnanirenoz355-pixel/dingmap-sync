@@ -106,6 +106,19 @@ interface YouzhaoOperationResult {
   message?: string;
 }
 
+interface YouzhaoExportGroup {
+  targetLayer: string;
+  rowCount: number;
+  files: string[];
+}
+
+interface YouzhaoExportResult {
+  city: string;
+  totalRows: number;
+  groups: YouzhaoExportGroup[];
+  error?: string;
+}
+
 interface CleanMarkerManagementStatistics {
   activeCount: number;
   anomalyCount: number;
@@ -126,6 +139,7 @@ type LoadingState =
   | "youzhao-probe"
   | "youzhao-preview"
   | "youzhao-import"
+  | "youzhao-export"
   | "clean"
   | "export"
   | null;
@@ -161,6 +175,9 @@ export default function DashboardPage() {
   const [youzhaoSummary, setYouzhaoSummary] = useState<PreviewSummary>(emptySummary);
   const [youzhaoResult, setYouzhaoResult] = useState<YouzhaoOperationResult | null>(null);
   const [youzhaoErrorMsg, setYouzhaoErrorMsg] = useState<string | null>(null);
+  const [youzhaoExportResult, setYouzhaoExportResult] =
+    useState<YouzhaoExportResult | null>(null);
+  const [youzhaoExportErrorMsg, setYouzhaoExportErrorMsg] = useState<string | null>(null);
 
   const [cleanMarkers, setCleanMarkers] = useState<CleanMarker[]>([]);
   const [managementStats, setManagementStats] =
@@ -190,6 +207,10 @@ export default function DashboardPage() {
       youzhaoPreviewRows.filter((row) => row.status === "valid" || row.status === "update_candidate")
         .length,
     [youzhaoPreviewRows],
+  );
+  const hasYouzhaoCleanData = useMemo(
+    () => cleanMarkers.some((marker) => marker.source === "youzhao" && marker.originType === "web"),
+    [cleanMarkers],
   );
 
   const stats = [
@@ -467,6 +488,28 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleYouzhaoExport() {
+    setYouzhaoExportErrorMsg(null);
+    setYouzhaoExportResult(null);
+    setLoading("youzhao-export");
+    try {
+      const response = await fetch("/api/youzhao/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city: youzhaoCity }),
+      });
+      const data = (await response.json()) as YouzhaoExportResult;
+      if (!response.ok) {
+        throw new Error(data.error ?? "优招钉图 Excel 导出失败。");
+      }
+      setYouzhaoExportResult(data);
+    } catch (error) {
+      setYouzhaoExportErrorMsg(error instanceof Error ? error.message : "优招钉图 Excel 导出失败。");
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function requestYouzhaoCollection(
     endpoint: string,
     loadingState: Exclude<LoadingState, null>,
@@ -600,11 +643,15 @@ export default function DashboardPage() {
         <YouzhaoPanel
           city={youzhaoCity}
           errorMsg={youzhaoErrorMsg}
+          exportErrorMsg={youzhaoExportErrorMsg}
+          exportResult={youzhaoExportResult}
+          hasCleanData={hasYouzhaoCleanData}
           importableCount={youzhaoImportableCount}
           limit={youzhaoLimit}
           loading={loading}
           onCheck={handleYouzhaoCheck}
           onCityChange={setYouzhaoCity}
+          onExport={handleYouzhaoExport}
           onImport={handleYouzhaoImport}
           onLimitChange={setYouzhaoLimit}
           onOpen={handleYouzhaoOpen}
@@ -853,11 +900,15 @@ function stageForYouzhaoLoading(loadingState: Exclude<LoadingState, null>): stri
 function YouzhaoPanel({
   city,
   errorMsg,
+  exportErrorMsg,
+  exportResult,
+  hasCleanData,
   importableCount,
   limit,
   loading,
   onCheck,
   onCityChange,
+  onExport,
   onImport,
   onLimitChange,
   onOpen,
@@ -874,11 +925,15 @@ function YouzhaoPanel({
 }: {
   city: string;
   errorMsg: string | null;
+  exportErrorMsg: string | null;
+  exportResult: YouzhaoExportResult | null;
+  hasCleanData: boolean;
   importableCount: number;
   limit: string;
   loading: LoadingState;
   onCheck: () => void;
   onCityChange: (value: string) => void;
+  onExport: () => void;
   onImport: () => void;
   onLimitChange: (value: string) => void;
   onOpen: () => void;
@@ -1019,6 +1074,83 @@ function YouzhaoPanel({
           <ResultPill label="跳过" value={result.skippedOther ?? 0} tone="text-slate-600" />
         </div>
       ) : null}
+
+      <section className="mt-4 rounded-card border border-line bg-white p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold">导出钉图 Excel</h3>
+            <p className="mt-1 text-sm text-textSubtle">
+              当前城市：{city.trim() || "未选择"}
+            </p>
+          </div>
+          <button
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            disabled={loading === "youzhao-export" || !city.trim() || !hasCleanData}
+            onClick={onExport}
+            type="button"
+          >
+            {loading === "youzhao-export" ? (
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download aria-hidden="true" className="h-4 w-4" />
+            )}
+            <span>导出钉图 Excel</span>
+          </button>
+        </div>
+
+        {exportErrorMsg ? <ErrorBox message={exportErrorMsg} /> : null}
+
+        {exportResult ? (
+          <div className="mt-3 grid gap-3 text-sm">
+            <div className="flex flex-wrap gap-2">
+              <ResultPill label="当前城市" value={exportResult.city} tone="text-slate-800" />
+              <ResultPill label="导出总数" value={exportResult.totalRows} tone="text-emerald-700" />
+              <ResultPill
+                label="生成文件"
+                value={exportResult.groups.reduce((total, group) => total + group.files.length, 0)}
+                tone="text-blue-700"
+              />
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] border-collapse text-left text-sm">
+                <thead className="bg-tableHead text-textSubtle">
+                  <tr>
+                    {["目标钉图图层", "条数", "生成文件", "下载"].map((column) => (
+                      <th key={column} className="px-3 py-2 font-medium">
+                        {column}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {exportResult.groups.map((group) => (
+                    <tr key={group.targetLayer} className="border-t border-line">
+                      <td className="px-3 py-2">{group.targetLayer}</td>
+                      <td className="px-3 py-2">{group.rowCount}</td>
+                      <td className="px-3 py-2">{group.files.length}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-2">
+                          {group.files.map((file) => (
+                            <a
+                              key={file}
+                              className="inline-flex h-8 items-center gap-1 rounded-md border border-line bg-white px-2 text-xs font-medium hover:bg-tableHead"
+                              download={file}
+                              href={`/api/dingmap/download/${encodeURIComponent(file)}`}
+                            >
+                              <Download aria-hidden="true" className="h-3.5 w-3.5" />
+                              <span>下载</span>
+                            </a>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       <PreviewTable rows={rows} />
     </section>

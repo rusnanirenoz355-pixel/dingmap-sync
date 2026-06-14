@@ -18,7 +18,7 @@ export async function GET(
     const file = readFileSync(filePath);
     return new Response(file, {
       headers: {
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": buildContentDisposition(filename),
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       },
     });
@@ -30,4 +30,9 @@ export async function GET(
       { status: 400 },
     );
   }
+}
+
+function buildContentDisposition(filename: string): string {
+  const asciiFallback = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
