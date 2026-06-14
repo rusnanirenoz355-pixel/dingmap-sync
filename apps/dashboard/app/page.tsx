@@ -1149,27 +1149,32 @@ function ImportPanel({
 }
 
 function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
+  const showDingmapPreview = rows.some((row) => row.source === "youzhao");
+
   return (
     <section className="mt-4 min-w-0 overflow-hidden rounded-card border border-line bg-panel">
       <div className="border-b border-line px-4 py-3">
         <h2 className="text-base font-semibold">识别预览</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1180px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1580px] border-collapse text-left text-sm">
           <thead className="bg-tableHead text-textSubtle">
             <tr>
               {[
                 "行号",
                 "来源",
-                "站点名称",
-                "地址",
-                "联系人",
-                "电话",
-                "薪资",
-                "福利",
-                "备注",
-                "目标图层",
-                "状态",
+                "合作站点名称",
+                "站点地址",
+                "岗位名称",
+                "站长姓名",
+                "站长电话",
+                "薪资方案",
+                "新人政策",
+                "结算规则",
+                "原始业务线",
+                "目标钉图图层",
+                "sourceId",
+                "preview 状态",
                 "错误 / 警告",
               ].map((column) => (
                 <th key={column} className="px-4 py-3 font-medium">
@@ -1181,7 +1186,7 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-5 text-textWeak" colSpan={12}>
+                <td className="px-4 py-5 text-textWeak" colSpan={15}>
                   暂无预览
                 </td>
               </tr>
@@ -1192,12 +1197,15 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
                   <td className="px-4 py-3 text-textSubtle">{row.source}</td>
                   <td className="px-4 py-3">{row.mapped.siteName || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.address || "-"}</td>
+                  <td className="px-4 py-3">{row.mapped.jobTitle || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.stationManager || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.phone || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.salary || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.welfare || "-"}</td>
                   <td className="px-4 py-3">{row.mapped.remark || "-"}</td>
+                  <td className="px-4 py-3">{row.raw.businessLine || row.raw["业务线"] || "-"}</td>
                   <td className="px-4 py-3">{row.targetLayer || "-"}</td>
+                  <td className="px-4 py-3">{row.mapped.sourceId || "-"}</td>
                   <td className="px-4 py-3">
                     <StatusBadge status={row.status} />
                   </td>
@@ -1210,7 +1218,54 @@ function PreviewTable({ rows }: { rows: ImportPreviewRow[] }) {
           </tbody>
         </table>
       </div>
+      {showDingmapPreview ? <DingmapSevenColumnPreview rows={rows} /> : null}
     </section>
+  );
+}
+
+function DingmapSevenColumnPreview({ rows }: { rows: ImportPreviewRow[] }) {
+  const youzhaoRows = rows.filter((row) => row.source === "youzhao");
+
+  return (
+    <div className="border-t border-line">
+      <div className="border-b border-line px-4 py-3">
+        <h3 className="text-sm font-semibold">钉图七列预览</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1180px] border-collapse text-left text-sm">
+          <thead className="bg-tableHead text-textSubtle">
+            <tr>
+              {["标记名称", "详细地址", "经度", "纬度", "备注", "字段一", "字段二"].map((column) => (
+                <th key={column} className="px-4 py-3 font-medium">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {youzhaoRows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-5 text-textWeak" colSpan={7}>
+                  暂无预览
+                </td>
+              </tr>
+            ) : (
+              youzhaoRows.map((row) => (
+                <tr key={`dingmap-${row.rowIndex}-${row.mergeKey ?? "none"}`} className="border-t border-line">
+                  <td className="px-4 py-3">{row.mapped.siteName || "-"}</td>
+                  <td className="px-4 py-3">{row.mapped.address || "-"}</td>
+                  <td className="px-4 py-3">{row.mapped.longitude ?? ""}</td>
+                  <td className="px-4 py-3">{row.mapped.latitude ?? ""}</td>
+                  <td className="whitespace-pre-line px-4 py-3">{row.dingmapRemark || "-"}</td>
+                  <td className="px-4 py-3">{row.dingmapFieldOne || "-"}</td>
+                  <td className="px-4 py-3">{row.dingmapFieldTwo || "-"}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

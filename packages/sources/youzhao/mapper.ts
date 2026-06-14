@@ -74,6 +74,8 @@ export function mapYouzhaoJobToRawRow(
 
   const raw: Record<string, string> = {
     city: normalizeText(options.city),
+    businessLine,
+    recruitmentStatus: options.recruitmentStatus ?? normalizeRecruitmentStatus(job.recruitment_status ?? job.status),
     siteId,
     jobId,
     合作站点名称: siteName,

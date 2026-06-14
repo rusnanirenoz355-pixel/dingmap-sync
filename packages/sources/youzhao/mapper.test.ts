@@ -38,6 +38,8 @@ describe("youzhao mapper", () => {
       originType: "web",
       raw: {
         city: "上海",
+        businessLine: "美团",
+        recruitmentStatus: "招聘中",
         siteId: "site-1",
         jobId: "job-a",
         合作站点名称: "Synthetic Site",
