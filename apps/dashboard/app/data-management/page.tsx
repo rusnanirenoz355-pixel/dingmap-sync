@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, Database, Loader2, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
 import type {
   CleanMarkerManagementStatistics,
@@ -263,7 +263,7 @@ export default function DataManagementPage() {
             {loading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
           </div>
 
-          <div className="overflow-x-auto">
+          <TableScrollFrame>
             <table className="w-full min-w-[1240px] table-fixed border-collapse text-left text-sm">
               <thead className="bg-tableHead text-textSubtle">
                 <tr>
@@ -274,7 +274,7 @@ export default function DataManagementPage() {
                   <HeaderCell width="w-32">originType</HeaderCell>
                   <HeaderCell width="w-32">状态</HeaderCell>
                   <HeaderCell width="w-52">备注 / 异常</HeaderCell>
-                  <th className="sticky right-0 w-28 bg-tableHead px-4 py-3 font-medium shadow-[-8px_0_12px_-12px_rgba(0,0,0,0.35)]">
+                  <th className="sticky right-0 top-0 z-20 w-28 bg-tableHead px-4 py-3 font-medium shadow-[-8px_0_12px_-12px_rgba(0,0,0,0.35)]">
                     操作
                   </th>
                 </tr>
@@ -323,7 +323,7 @@ export default function DataManagementPage() {
                           }
                         />
                       </td>
-                      <td className="sticky right-0 bg-white px-4 py-3 shadow-[-8px_0_12px_-12px_rgba(0,0,0,0.35)]">
+                      <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-8px_0_12px_-12px_rgba(0,0,0,0.35)]">
                         <button
                           className="inline-flex h-9 items-center rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-zinc-800"
                           onClick={() => setSelectedMarker(marker)}
@@ -337,7 +337,7 @@ export default function DataManagementPage() {
                 )}
               </tbody>
             </table>
-          </div>
+          </TableScrollFrame>
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3 text-sm">
             <span className="text-textSubtle">
@@ -381,8 +381,16 @@ export default function DataManagementPage() {
   );
 }
 
-function HeaderCell({ children, width }: { children: React.ReactNode; width: string }) {
-  return <th className={`${width} px-4 py-3 font-medium`}>{children}</th>;
+function TableScrollFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-w-0 max-h-[520px] overflow-x-auto overflow-y-auto">
+      {children}
+    </div>
+  );
+}
+
+function HeaderCell({ children, width }: { children: ReactNode; width: string }) {
+  return <th className={`sticky top-0 z-10 bg-tableHead ${width} px-4 py-3 font-medium`}>{children}</th>;
 }
 
 function Metric({ label, value }: { label: string; value: number }) {

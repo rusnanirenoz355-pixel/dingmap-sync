@@ -73,7 +73,27 @@ describe("youzhao task API routes", () => {
     expect(response.status).toBe(400);
     expect(json.lastErrorStatus).toBe("full_confirmation_required");
     expect(startYouzhaoCollectionTask).toHaveBeenCalledWith(
-      { city: hangzhou, mode: "full", confirmed: false, confirmedTotal: 9858, pageSize: undefined },
+      { city: hangzhou, mode: "full", confirmed: false, confirmedTotal: 9858, pageSize: 50 },
+      expect.any(Object),
+    );
+  });
+
+  it("forces full task starts to page size fifty even when the client sends another page size", async () => {
+    vi.mocked(startYouzhaoCollectionTask).mockResolvedValue(
+      taskState({ mode: "full", status: "completed", pageSize: 50 }),
+    );
+
+    const response = await startPost(jsonRequest({
+      city: hangzhou,
+      mode: "full",
+      confirmed: true,
+      confirmedTotal: 9858,
+      pageSize: 20,
+    }));
+
+    expect(response.status).toBe(200);
+    expect(startYouzhaoCollectionTask).toHaveBeenCalledWith(
+      { city: hangzhou, mode: "full", confirmed: true, confirmedTotal: 9858, pageSize: 50 },
       expect.any(Object),
     );
   });
@@ -81,7 +101,7 @@ describe("youzhao task API routes", () => {
   it("uses session check dependency when resuming", async () => {
     vi.mocked(resumeYouzhaoCollectionTask).mockResolvedValue(taskState({ status: "requires_login", nextPage: 2 }));
 
-    const response = await resumePost(jsonRequest({ city: hangzhou }));
+    const response = await resumePost(jsonRequest({ city: hangzhou, mode: "full" }));
 
     expect(response.status).toBe(401);
     expect(resumeYouzhaoCollectionTask).toHaveBeenCalledWith(
@@ -89,6 +109,7 @@ describe("youzhao task API routes", () => {
       expect.objectContaining({
         collectPage: expect.any(Function),
         importRows: expect.any(Function),
+        mode: "full",
         sessionCheck: expect.any(Function),
       }),
     );
@@ -103,7 +124,7 @@ describe("youzhao task API routes", () => {
     const pause = await pausePost(jsonRequest({ city: hangzhou }));
     const cancel = await cancelPost(jsonRequest({ city: hangzhou }));
     const restart = await restartPost(jsonRequest({ city: hangzhou, confirmed: true }));
-    const current = await currentGet();
+    const current = await currentGet(new Request(`http://localhost/api/youzhao/tasks/current?city=${encodeURIComponent(hangzhou)}&mode=full`));
     const serialized = JSON.stringify([
       await pause.json(),
       await cancel.json(),
@@ -115,7 +136,8 @@ describe("youzhao task API routes", () => {
     expect(cancel.status).toBe(200);
     expect(restart.status).toBe(200);
     expect(current.status).toBe(200);
-    expect(restartYouzhaoCollectionTask).toHaveBeenCalledWith(hangzhou, { confirmed: true });
+    expect(restartYouzhaoCollectionTask).toHaveBeenCalledWith(hangzhou, { confirmed: true, mode: "smoke" });
+    expect(getYouzhaoCollectionTask).toHaveBeenCalledWith(undefined, { city: hangzhou, mode: "full" });
     expect(serialized).not.toContain("Synthetic Site");
     expect(serialized).not.toContain("19900000000");
     expect(serialized).not.toContain("rawRows");
@@ -145,6 +167,10 @@ function taskState(overrides: Record<string, unknown> = {}) {
     },
     targetLayerCounts: {},
     failedPages: [],
+    totalPages: null,
+    completedPages: [],
+    countConsistencyPassed: null,
+    countDifference: null,
     ...overrides,
   } as never;
 }

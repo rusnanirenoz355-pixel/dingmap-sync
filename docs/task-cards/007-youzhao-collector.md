@@ -76,13 +76,34 @@ Playwright persistent context 人工登录
 
 ## 业务线目标图层
 
-第一版只做分类统计，不做按图层拆分 Excel：
-
 * 包含“美团” -> 美团点
 * 包含“淘宝专送”或“淘宝UB” -> 淘宝点
 * 包含“小象配送”或“叮咚” -> 买菜点
 * 包含“分拣员” -> 其他点
 * 其他全部 -> 商超点
+
+## 优招钉图导出筛选组合
+
+优招导出保留完整组合能力，城市范围和目标图层是两个独立筛选项：
+
+* 城市范围：
+  * 当前指定城市：`city = "<城市>"`
+  * 全部城市：`city = "all"`
+* 目标图层：
+  * 全部图层：`targetLayer = "all"`
+  * 单图层：`targetLayer = "美团点" | "淘宝点" | "买菜点" | "其他点" | "商超点"`
+* 支持组合：
+  * 单城市 + 单图层：只生成该城市该图层文件。
+  * 单城市 + 全部图层：按该城市已有数据分图层生成文件，无数据图层不生成空文件。
+  * 全部城市 + 单图层：将本地已采集城市的同一图层合并到同一个文件，不按城市拆分。
+  * 全部城市 + 全部图层：本地已采集城市按目标图层分文件导出。
+* `city = "all"` 只读取本地 Clean Table 中已采集数据，不请求优招接口，不自动遍历城市。
+* 全部城市导出仅包含 `source = youzhao`、`originType = web`、`deleted_at IS NULL` 且 `raw.city` 非空的数据。
+* `raw.city` 缺失的数据不导出，并在返回结构中统计 `missingCityExcluded`。
+* 单城市匹配会标准化城市文本，兼容 raw 中带“市”后缀的城市值。
+* 单个导出文件最多 2000 条，超过后按“第1批 / 第2批”拆分。
+* 固定钉图七列表头保持不变，经度 / 纬度仍为空单元格。
+* 合法筛选范围无数据时返回 `files = []`、`totalExported = 0`，不生成空 Excel。
 
 ## 不做范围
 
@@ -95,7 +116,6 @@ Playwright persistent context 人工登录
 * 不提交真实采集结果、HAR、截图、DB 或导出文件。
 * 不自动上传钉图。
 * 不改 Task 003 七列表头。
-* 不做按城市 / 图层拆分 Excel，本项留到 A3。
 
 ## 9858 条全量方案
 
@@ -109,7 +129,7 @@ Playwright persistent context 人工登录
 6. 401 / 403 / 验证码 / schema_changed 立即停止。
 7. 每批写入 raw cache 后再走公共 import pipeline。
 8. 继续以 `sourceId` 和 `mergeKey` 处理 duplicate / update_candidate。
-9. 钉图导出按每批最多 2000 条拆分，A3 再做城市 / 图层拆分文件。
+9. 钉图导出按城市范围和目标图层筛选，单文件最多 2000 条并自动拆批。
 
 ## 测试
 
@@ -205,6 +225,7 @@ smoke 模式只检查：
 * `packages/db/import-clean-markers.test.ts`
 * `packages/db/youzhao-dingmap-export.test.ts`
 * `apps/dashboard/app/api/youzhao/youzhao-export-routes.test.ts`
+* `apps/dashboard/app/dashboard-youzhao-ui.test.ts`
 
 ### 当前状态
 

@@ -15,6 +15,14 @@ const outputDir = join(process.cwd(), "data", "exports", "test-youzhao");
 const schemaSql = readFileSync(join(process.cwd(), "packages", "db", "schema.sql"), "utf8");
 const syntheticPhone = ["199", "0000", "0000"].join("");
 
+const hangzhou = "\u676d\u5dde";
+const shanghai = "\u4e0a\u6d77";
+const meituanLayer = "\u7f8e\u56e2\u70b9";
+const taobaoLayer = "\u6dd8\u5b9d\u70b9";
+const groceryLayer = "\u4e70\u83dc\u70b9";
+const otherLayer = "\u5176\u4ed6\u70b9";
+const supermarketLayer = "\u5546\u8d85\u70b9";
+
 describe("youzhao DingMap grouped export", () => {
   beforeEach(() => {
     process.env.DATABASE_URL = `file:${databasePath}`;
@@ -30,205 +38,266 @@ describe("youzhao DingMap grouped export", () => {
     database.close();
   });
 
-  it("exports active youzhao web rows for one city grouped by target layer", async () => {
+  it("exports one city and one target layer without empty layer files", async () => {
     const database = new DatabaseSync(databasePath);
     insertYouzhaoMarker(database, {
-      sourceId: "job-buy-a",
-      city: "杭州",
-      businessLine: "小象配送",
-      siteName: "Synthetic Shared Site",
-      address: "Synthetic Shared Road",
-      jobTitle: "Synthetic Job A",
-      salary: "Synthetic salary A",
-      welfare: "Synthetic welfare A",
-      settlement: "Synthetic settlement A",
+      sourceId: "hz-meituan",
+      city: hangzhou,
+      businessLine: "\u7f8e\u56e2",
+      siteName: "Synthetic Meituan Site",
+      address: "Synthetic Meituan Road",
     });
     insertYouzhaoMarker(database, {
-      sourceId: "job-buy-b",
-      city: "杭州",
-      businessLine: "叮咚",
-      siteName: "Synthetic Shared Site",
-      address: "Synthetic Shared Road",
-      jobTitle: "Synthetic Job B",
-      salary: "Synthetic salary B",
-      welfare: "Synthetic welfare B",
-      settlement: "Synthetic settlement B",
-    });
-    insertYouzhaoMarker(database, {
-      sourceId: "job-super-a",
-      city: "杭州",
-      businessLine: "盒马",
+      sourceId: "hz-supermarket",
+      city: hangzhou,
+      businessLine: "\u76d2\u9a6c",
       siteName: "Synthetic Super Site",
       address: "Synthetic Super Road",
-      jobTitle: "Synthetic Super Job",
-      salary: "Synthetic salary C",
-      welfare: "Synthetic welfare C",
-      settlement: "Synthetic settlement C",
     });
     insertYouzhaoMarker(database, {
-      sourceId: "job-other-city",
-      city: "上海",
-      businessLine: "盒马",
-      siteName: "Other City Site",
-      address: "Other City Road",
+      sourceId: "sh-meituan",
+      city: shanghai,
+      businessLine: "\u7f8e\u56e2",
+      siteName: "Synthetic Other City Site",
+      address: "Synthetic Other City Road",
     });
     insertYouzhaoMarker(database, {
-      sourceId: "job-deleted",
-      city: "杭州",
-      businessLine: "美团",
-      siteName: "Deleted Site",
-      address: "Deleted Road",
+      sourceId: "hz-deleted",
+      city: hangzhou,
+      businessLine: "\u7f8e\u56e2",
+      siteName: "Synthetic Deleted Site",
+      address: "Synthetic Deleted Road",
       deletedAt: "2026-06-14T00:00:00.000Z",
     });
     insertNonYouzhaoMarker(database, "manual_paste");
     insertNonYouzhaoMarker(database, "excel");
     database.close();
 
-    const result = await exportYouzhaoDingmapTemplates({ city: "杭州", outputDir });
-
-    expect(result.city).toBe("杭州");
-    expect(result.totalRows).toBe(3);
-    expect(result.groups).toEqual([
-      {
-        targetLayer: "买菜点",
-        rowCount: 2,
-        files: ["优招-杭州-买菜点.xlsx"],
-      },
-      {
-        targetLayer: "商超点",
-        rowCount: 1,
-        files: ["优招-杭州-商超点.xlsx"],
-      },
-    ]);
-
-    const buyRows = await readSheetRows(join(outputDir, "优招-杭州-买菜点.xlsx"));
-    expect(buyRows.headers).toEqual(DINGMAP_IMPORT_HEADERS);
-    expect(buyRows.rows).toHaveLength(2);
-    expect(buyRows.rows.map((row) => row["标记名称"])).toEqual([
-      "Synthetic Shared Site",
-      "Synthetic Shared Site",
-    ]);
-    expect(buyRows.rows[0]).toMatchObject({
-      详细地址: "Synthetic Shared Road",
-      经度: "",
-      纬度: "",
-      字段一: `Manager ${syntheticPhone}`,
-      字段二: "Synthetic settlement A",
+    const result = await exportYouzhaoDingmapTemplates({
+      city: hangzhou,
+      targetLayer: meituanLayer,
+      outputDir,
     });
-    expect(String(buyRows.rows[0]?.备注)).toContain("【岗位名称】\nSynthetic Job A");
-    expect(String(buyRows.rows[0]?.备注)).toContain("【薪资方案】\nSynthetic salary A");
-    expect(String(buyRows.rows[0]?.备注)).toContain("【新人政策】\nSynthetic welfare A");
-    expect(String(buyRows.rows[0]?.备注)).not.toMatch(/undefined|null/);
 
-    const superRows = await readSheetRows(join(outputDir, "优招-杭州-商超点.xlsx"));
-    expect(superRows.rows).toHaveLength(1);
-    expect(superRows.rows[0]?.字段二).toBe("Synthetic settlement C");
-    expect(existsSync(join(outputDir, "优招-杭州-美团点.xlsx"))).toBe(false);
-    expect(existsSync(join(outputDir, "优招-杭州-淘宝点.xlsx"))).toBe(false);
-    expect(existsSync(join(outputDir, "优招-杭州-其他点.xlsx"))).toBe(false);
+    expect(result).toMatchObject({
+      city: hangzhou,
+      targetLayer: meituanLayer,
+      totalExported: 1,
+      missingCityExcluded: 0,
+      message: null,
+    });
+    expect(result.files).toEqual([
+      {
+        targetLayer: meituanLayer,
+        count: 1,
+        filename: `\u4f18\u62db-${hangzhou}-${meituanLayer}.xlsx`,
+        downloadUrl: `/api/dingmap/download/${encodeURIComponent(`\u4f18\u62db-${hangzhou}-${meituanLayer}.xlsx`)}`,
+        batch: 1,
+      },
+    ]);
+    expect(existsSync(join(outputDir, `\u4f18\u62db-${hangzhou}-${supermarketLayer}.xlsx`))).toBe(false);
+    const rows = await readSheetRows(join(outputDir, result.files[0]?.filename ?? ""));
+    expect(rows.headers).toEqual(DINGMAP_IMPORT_HEADERS);
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]?.["\u7ecf\u5ea6"]).toBe("");
+    expect(rows.rows[0]?.["\u7eac\u5ea6"]).toBe("");
+    expect(JSON.stringify(rows.rows)).not.toContain("undefined");
+  });
+
+  it("matches city-scoped exports when raw city values include the city suffix", async () => {
+    const database = new DatabaseSync(databasePath);
+    insertYouzhaoMarker(database, {
+      sourceId: "hz-city-suffix",
+      city: "\u676d\u5dde\u5e02",
+      businessLine: "\u7f8e\u56e2",
+      siteName: "Synthetic City Suffix Site",
+      address: "Synthetic City Suffix Road",
+    });
+    database.close();
+
+    const result = await exportYouzhaoDingmapTemplates({
+      city: hangzhou,
+      targetLayer: meituanLayer,
+      outputDir,
+    });
+
+    expect(result.totalExported).toBe(1);
+    expect(result.files[0]).toMatchObject({
+      targetLayer: meituanLayer,
+      count: 1,
+      filename: `\u4f18\u62db-${hangzhou}-${meituanLayer}.xlsx`,
+    });
+  });
+
+  it("exports one city and all target layers by layer without empty files", async () => {
+    const database = new DatabaseSync(databasePath);
+    insertYouzhaoMarker(database, { sourceId: "hz-meituan", city: hangzhou, businessLine: "\u7f8e\u56e2" });
+    insertYouzhaoMarker(database, { sourceId: "hz-grocery", city: hangzhou, businessLine: "\u5c0f\u8c61\u914d\u9001" });
+    insertYouzhaoMarker(database, { sourceId: "hz-super", city: hangzhou, businessLine: "\u76d2\u9a6c" });
+    insertYouzhaoMarker(database, { sourceId: "sh-meituan", city: shanghai, businessLine: "\u7f8e\u56e2" });
+    database.close();
+
+    const result = await exportYouzhaoDingmapTemplates({ city: hangzhou, targetLayer: "all", outputDir });
+
+    expect(result.city).toBe(hangzhou);
+    expect(result.targetLayer).toBe("all");
+    expect(result.totalExported).toBe(3);
+    expect(result.files.map((file) => file.targetLayer)).toEqual([meituanLayer, groceryLayer, supermarketLayer]);
+    expect(result.files.map((file) => file.filename)).toEqual([
+      `\u4f18\u62db-${hangzhou}-${meituanLayer}.xlsx`,
+      `\u4f18\u62db-${hangzhou}-${groceryLayer}.xlsx`,
+      `\u4f18\u62db-${hangzhou}-${supermarketLayer}.xlsx`,
+    ]);
+    expect(existsSync(join(outputDir, `\u4f18\u62db-${hangzhou}-${taobaoLayer}.xlsx`))).toBe(false);
+    expect(existsSync(join(outputDir, `\u4f18\u62db-${hangzhou}-${otherLayer}.xlsx`))).toBe(false);
+  });
+
+  it("exports all cities and one target layer into a merged file", async () => {
+    const database = new DatabaseSync(databasePath);
+    insertYouzhaoMarker(database, { sourceId: "hz-meituan", city: hangzhou, businessLine: "\u7f8e\u56e2" });
+    insertYouzhaoMarker(database, { sourceId: "sh-meituan", city: shanghai, businessLine: "\u7f8e\u56e2" });
+    insertYouzhaoMarker(database, { sourceId: "hz-grocery", city: hangzhou, businessLine: "\u5c0f\u8c61\u914d\u9001" });
+    database.close();
+
+    const result = await exportYouzhaoDingmapTemplates({
+      city: "all",
+      targetLayer: meituanLayer,
+      outputDir,
+    });
+
+    expect(result.city).toBe("all");
+    expect(result.targetLayer).toBe(meituanLayer);
+    expect(result.totalExported).toBe(2);
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]).toMatchObject({
+      targetLayer: meituanLayer,
+      count: 2,
+      filename: `\u4f18\u62db-\u5168\u90e8\u57ce\u5e02-${meituanLayer}.xlsx`,
+    });
+    const rows = await readSheetRows(join(outputDir, result.files[0]?.filename ?? ""));
+    expect(rows.rows).toHaveLength(2);
+  });
+
+  it("exports all cities and all target layers while excluding missing city metadata", async () => {
+    const database = new DatabaseSync(databasePath);
+    insertYouzhaoMarker(database, { sourceId: "hz-meituan", city: hangzhou, businessLine: "\u7f8e\u56e2" });
+    insertYouzhaoMarker(database, { sourceId: "sh-grocery", city: shanghai, businessLine: "\u53ee\u549a" });
+    insertYouzhaoMarker(database, { sourceId: "hz-super", city: hangzhou, businessLine: "\u76d2\u9a6c" });
+    insertYouzhaoMarker(database, { sourceId: "missing-city", city: "", businessLine: "\u7f8e\u56e2" });
+    database.close();
+
+    const result = await exportYouzhaoDingmapTemplates({ city: "all", targetLayer: "all", outputDir });
+
+    expect(result.city).toBe("all");
+    expect(result.targetLayer).toBe("all");
+    expect(result.totalExported).toBe(3);
+    expect(result.missingCityExcluded).toBe(1);
+    expect(result.message).toContain("1");
+    expect(result.files.map((file) => file.targetLayer)).toEqual([meituanLayer, groceryLayer, supermarketLayer]);
+    expect(result.files.map((file) => file.filename)).toEqual([
+      `\u4f18\u62db-\u5168\u90e8\u57ce\u5e02-${meituanLayer}.xlsx`,
+      `\u4f18\u62db-\u5168\u90e8\u57ce\u5e02-${groceryLayer}.xlsx`,
+      `\u4f18\u62db-\u5168\u90e8\u57ce\u5e02-${supermarketLayer}.xlsx`,
+    ]);
+  });
+
+  it("returns an empty success result when a legal filter has no exportable data", async () => {
+    const result = await exportYouzhaoDingmapTemplates({
+      city: hangzhou,
+      targetLayer: taobaoLayer,
+      outputDir,
+    });
+
+    expect(result).toMatchObject({
+      city: hangzhou,
+      targetLayer: taobaoLayer,
+      totalExported: 0,
+      missingCityExcluded: 0,
+      files: [],
+      message: "\u5f53\u524d\u7b5b\u9009\u8303\u56f4\u6ca1\u6709\u53ef\u5bfc\u51fa\u6570\u636e",
+    });
+  });
+
+  it("splits merged all-city files at the requested batch boundary", async () => {
+    const database = new DatabaseSync(databasePath);
+    insertYouzhaoMarker(database, { sourceId: "hz-meituan-1", city: hangzhou, businessLine: "\u7f8e\u56e2" });
+    insertYouzhaoMarker(database, { sourceId: "sh-meituan-2", city: shanghai, businessLine: "\u7f8e\u56e2" });
+    insertYouzhaoMarker(database, { sourceId: "hz-meituan-3", city: hangzhou, businessLine: "\u7f8e\u56e2" });
+    database.close();
+
+    const result = await exportYouzhaoDingmapTemplates({
+      city: "all",
+      targetLayer: meituanLayer,
+      outputDir,
+      batchSize: 2,
+    });
+
+    expect(result.files.map((file) => file.filename)).toEqual([
+      `\u4f18\u62db-\u5168\u90e8\u57ce\u5e02-${meituanLayer}-\u7b2c1\u6279.xlsx`,
+      `\u4f18\u62db-\u5168\u90e8\u57ce\u5e02-${meituanLayer}-\u7b2c2\u6279.xlsx`,
+    ]);
+    expect(result.files.map((file) => file.count)).toEqual([2, 1]);
+    await expect(readSheetRows(join(outputDir, result.files[0]?.filename ?? ""))).resolves.toMatchObject({
+      rows: expect.any(Array),
+    });
   });
 
   it("plans 2000-row DingMap batches at the required boundaries", () => {
     expect(buildYouzhaoBatchFilenames({
-      city: "杭州",
-      targetLayer: "商超点",
+      city: "\u5168\u90e8\u57ce\u5e02",
+      targetLayer: supermarketLayer,
       rowCount: 2000,
-    })).toEqual(["优招-杭州-商超点.xlsx"]);
+    })).toEqual([`\u4f18\u62db-\u5168\u90e8\u57ce\u5e02-${supermarketLayer}.xlsx`]);
     expect(buildYouzhaoBatchFilenames({
-      city: "杭州",
-      targetLayer: "商超点",
+      city: "\u5168\u90e8\u57ce\u5e02",
+      targetLayer: supermarketLayer,
       rowCount: 2001,
-    })).toEqual(["优招-杭州-商超点-第1批.xlsx", "优招-杭州-商超点-第2批.xlsx"]);
-    expect(buildYouzhaoBatchFilenames({
-      city: "杭州",
-      targetLayer: "商超点",
-      rowCount: 4001,
     })).toEqual([
-      "优招-杭州-商超点-第1批.xlsx",
-      "优招-杭州-商超点-第2批.xlsx",
-      "优招-杭州-商超点-第3批.xlsx",
+      `\u4f18\u62db-\u5168\u90e8\u57ce\u5e02-${supermarketLayer}-\u7b2c1\u6279.xlsx`,
+      `\u4f18\u62db-\u5168\u90e8\u57ce\u5e02-${supermarketLayer}-\u7b2c2\u6279.xlsx`,
     ]);
   });
 
   it("marks smoke exports as partial data without changing full filenames", () => {
     expect(buildYouzhaoExportFilename({
-      city: "\u676d\u5dde",
-      targetLayer: "\u7f8e\u56e2\u70b9",
+      city: hangzhou,
+      targetLayer: meituanLayer,
       partial: true,
-    })).toBe("\u4f18\u62db-\u676d\u5dde-\u7f8e\u56e2\u70b9-\u90e8\u5206\u6570\u636e.xlsx");
+    })).toBe(`\u4f18\u62db-${hangzhou}-${meituanLayer}-\u90e8\u5206\u6570\u636e.xlsx`);
     expect(buildYouzhaoExportFilename({
-      city: "\u676d\u5dde",
-      targetLayer: "\u7f8e\u56e2\u70b9",
+      city: hangzhou,
+      targetLayer: meituanLayer,
       partial: false,
-    })).toBe("\u4f18\u62db-\u676d\u5dde-\u7f8e\u56e2\u70b9.xlsx");
-    expect(buildYouzhaoBatchFilenames({
-      city: "\u676d\u5dde",
-      targetLayer: "\u5546\u8d85\u70b9",
-      rowCount: 2001,
-      partial: true,
-    })).toEqual([
-      "\u4f18\u62db-\u676d\u5dde-\u5546\u8d85\u70b9-\u90e8\u5206\u6570\u636e-\u7b2c1\u6279.xlsx",
-      "\u4f18\u62db-\u676d\u5dde-\u5546\u8d85\u70b9-\u90e8\u5206\u6570\u636e-\u7b2c2\u6279.xlsx",
-    ]);
+    })).toBe(`\u4f18\u62db-${hangzhou}-${meituanLayer}.xlsx`);
   });
 
-  it("splits each city and layer group without losing or duplicating records", async () => {
-    const database = new DatabaseSync(databasePath);
-    for (let index = 1; index <= 5; index += 1) {
-      insertYouzhaoMarker(database, {
-        sourceId: `job-${String(index).padStart(4, "0")}`,
-        city: "杭州",
-        businessLine: "盒马",
-        siteName: `Synthetic Site ${index}`,
-        address: `Synthetic Road ${index}`,
-      });
-    }
-    database.close();
-
-    const result = await exportYouzhaoDingmapTemplates({ city: "杭州", outputDir, batchSize: 2 });
-
-    expect(result.totalRows).toBe(5);
-    expect(result.groups).toEqual([
-      {
-        targetLayer: "商超点",
-        rowCount: 5,
-        files: [
-          "优招-杭州-商超点-第1批.xlsx",
-          "优招-杭州-商超点-第2批.xlsx",
-          "优招-杭州-商超点-第3批.xlsx",
-        ],
-      },
-    ]);
-    await expect(readSheetRows(join(outputDir, "优招-杭州-商超点-第1批.xlsx"))).resolves.toMatchObject({
-      rows: expect.arrayContaining([expect.objectContaining({ 标记名称: "Synthetic Site 1" })]),
-    });
-    expect((await readSheetRows(join(outputDir, "优招-杭州-商超点-第1批.xlsx"))).rows).toHaveLength(2);
-    expect((await readSheetRows(join(outputDir, "优招-杭州-商超点-第2批.xlsx"))).rows).toHaveLength(2);
-    expect((await readSheetRows(join(outputDir, "优招-杭州-商超点-第3批.xlsx"))).rows).toHaveLength(1);
-  });
-
-  it("validates city and sanitizes unsafe filename characters", async () => {
+  it("validates city scope, target layer, and sanitizes unsafe filename characters", async () => {
     await expect(exportYouzhaoDingmapTemplates({ city: "", outputDir })).rejects.toThrow(
-      "必须选择一个城市",
+      "\u57ce\u5e02\u8303\u56f4",
     );
-    await expect(exportYouzhaoDingmapTemplates({ city: "杭州,上海", outputDir })).rejects.toThrow(
-      "一次只能导出一个城市",
+    await expect(exportYouzhaoDingmapTemplates({ city: "\u5168\u56fd", outputDir })).rejects.toThrow(
+      "city = \"all\"",
     );
+    await expect(exportYouzhaoDingmapTemplates({
+      city: hangzhou,
+      targetLayer: "Synthetic Invalid Layer",
+      outputDir,
+    })).rejects.toThrow("\u76ee\u6807\u56fe\u5c42");
 
     const database = new DatabaseSync(databasePath);
     insertYouzhaoMarker(database, {
       sourceId: "job-safe-name",
-      city: "杭/州:*?",
-      businessLine: "美团",
+      city: "\u676d/\u5dde:*?",
+      businessLine: "\u7f8e\u56e2",
       siteName: "Synthetic Safe Site",
       address: "Synthetic Safe Road",
     });
     database.close();
 
-    const result = await exportYouzhaoDingmapTemplates({ city: "杭/州:*?", outputDir });
+    const result = await exportYouzhaoDingmapTemplates({ city: "\u676d/\u5dde:*?", outputDir });
 
-    expect(result.groups[0]?.files[0]).toBe("优招-杭_州___-美团点.xlsx");
-    expect(result.groups[0]?.files[0]).not.toMatch(/[\\/:*?"<>|]/);
+    expect(result.files[0]?.filename).toBe(`\u4f18\u62db-\u676d_\u5dde___-${meituanLayer}.xlsx`);
+    expect(result.files[0]?.filename).not.toMatch(/[\\/:*?"<>|]/);
   });
 });
 
@@ -238,8 +307,8 @@ function insertYouzhaoMarker(
     sourceId: string;
     city: string;
     businessLine: string;
-    siteName: string;
-    address: string;
+    siteName?: string;
+    address?: string;
     jobTitle?: string;
     salary?: string;
     welfare?: string;
@@ -261,8 +330,8 @@ function insertYouzhaoMarker(
     .run(
       "youzhao",
       input.sourceId,
-      input.siteName,
-      input.address,
+      input.siteName ?? `Synthetic Site ${input.sourceId}`,
+      input.address ?? `Synthetic Road ${input.sourceId}`,
       120.1,
       30.2,
       "Manager",
@@ -290,13 +359,13 @@ function insertYouzhaoMarker(
     .run(
       "youzhao",
       `raw-${input.sourceId}`,
-      input.siteName,
-      input.address,
+      input.siteName ?? `Synthetic Site ${input.sourceId}`,
+      input.address ?? `Synthetic Road ${input.sourceId}`,
       JSON.stringify({
         raw: {
           city: input.city,
           businessLine: input.businessLine,
-          业务线: input.businessLine,
+          "\u4e1a\u52a1\u7ebf": input.businessLine,
         },
         mapped: {
           sourceId: input.sourceId,

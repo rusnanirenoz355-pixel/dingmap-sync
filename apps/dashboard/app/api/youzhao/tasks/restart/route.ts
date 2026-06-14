@@ -9,6 +9,7 @@ export async function POST(request: Request): Promise<Response> {
     return taskResponse(
       restartYouzhaoCollectionTask(requireCity(body), {
         confirmed: body.confirmed === true,
+        mode: body.mode === "full" ? "full" : "smoke",
       }),
     );
   } catch (error) {

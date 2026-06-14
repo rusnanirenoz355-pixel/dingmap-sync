@@ -78,6 +78,7 @@ export interface YouzhaoPageCollectResult {
 
 export interface YouzhaoCollectionTaskDependencies {
   checkpointDir?: string;
+  mode?: YouzhaoTaskMode;
   collectPage?: (input: YouzhaoPageCollectInput) => Promise<YouzhaoPageCollectResult>;
   importRows?: (
     rows: RawImportRow[],
@@ -114,7 +115,11 @@ export interface YouzhaoCollectionTaskState {
   processedPages: number;
   processedItems: number;
   totalFromApi: number | null;
+  totalPages: number | null;
   confirmedTotal?: number;
+  completedPages: number[];
+  countConsistencyPassed: boolean | null;
+  countDifference: number | null;
   counts: YouzhaoCollectionCounts;
   targetLayerCounts: Partial<Record<DingmapTargetLayer, number>>;
   failedPages: YouzhaoFailedPage[];
@@ -126,6 +131,11 @@ export interface YouzhaoCollectionTaskState {
 interface YouzhaoCollectionCheckpoint extends YouzhaoCollectionTaskState {
   schemaVersion: 1;
   processedSourceIdHashes: string[];
+}
+
+export interface YouzhaoTaskLookupOptions {
+  city?: string;
+  mode?: YouzhaoTaskMode;
 }
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -140,11 +150,29 @@ let currentTask: YouzhaoCollectionTaskState = buildIdleState("");
 let stopIntent: "pause" | "cancel" | null = null;
 let processedSourceIdHashes = new Set<string>();
 
-export function getYouzhaoCheckpointPath(city: string, checkpointDir = DEFAULT_CHECKPOINT_DIR): string {
-  return join(checkpointDir, `${encodeURIComponent(city)}.json`);
+export function getYouzhaoCheckpointPath(
+  city: string,
+  checkpointDir = DEFAULT_CHECKPOINT_DIR,
+  mode: YouzhaoTaskMode = "smoke",
+): string {
+  const suffix = mode === "full" ? ".full" : "";
+  return join(checkpointDir, `${encodeURIComponent(city)}${suffix}.json`);
 }
 
-export function getYouzhaoCollectionTask(checkpointDir = DEFAULT_CHECKPOINT_DIR): YouzhaoCollectionTaskState {
+export function getYouzhaoCollectionTask(
+  checkpointDir = DEFAULT_CHECKPOINT_DIR,
+  options: YouzhaoTaskLookupOptions = {},
+): YouzhaoCollectionTaskState {
+  const lookupCity = typeof options.city === "string" ? options.city.trim() : "";
+  const lookupMode = options.mode;
+  if (lookupCity || lookupMode) {
+    const state = readTaskStateByLookup(checkpointDir, { city: lookupCity || undefined, mode: lookupMode });
+    if (state) {
+      return state;
+    }
+    return buildIdleState(lookupCity, lookupMode ?? "smoke");
+  }
+
   if (currentTask.status === "idle" && !currentTask.city) {
     const persisted = readCurrentState(checkpointDir);
     if (persisted) {
@@ -170,7 +198,7 @@ export function cancelYouzhaoCollectionTask(city: string): YouzhaoCollectionTask
 
 export function restartYouzhaoCollectionTask(
   city: string,
-  options: { checkpointDir?: string; confirmed?: boolean } = {},
+  options: { checkpointDir?: string; confirmed?: boolean; mode?: YouzhaoTaskMode } = {},
 ): YouzhaoCollectionTaskState {
   if (!options.confirmed) {
     currentTask = {
@@ -183,11 +211,12 @@ export function restartYouzhaoCollectionTask(
     return getYouzhaoCollectionTask();
   }
 
-  const checkpointPath = getYouzhaoCheckpointPath(city, options.checkpointDir);
+  const mode = options.mode ?? "smoke";
+  const checkpointPath = getYouzhaoCheckpointPath(city, options.checkpointDir, mode);
   if (existsSync(checkpointPath)) {
     rmSync(checkpointPath, { force: true });
   }
-  currentTask = buildIdleState(city);
+  currentTask = buildIdleState(city, mode);
   processedSourceIdHashes = new Set();
   stopIntent = null;
   writeCurrentState(currentTask, options.checkpointDir);
@@ -198,8 +227,19 @@ export async function resumeYouzhaoCollectionTask(
   city: string,
   dependencies: YouzhaoCollectionTaskDependencies = {},
 ): Promise<YouzhaoCollectionTaskState> {
-  const checkpoint = readCheckpoint(city, dependencies.checkpointDir);
-  const baseState = checkpoint ? checkpointToState(checkpoint) : buildIdleState(city);
+  const mode = dependencies.mode ?? "smoke";
+  const checkpoint = readCheckpoint(city, dependencies.checkpointDir, mode);
+  if (!checkpoint && mode === "full") {
+    currentTask = {
+      ...buildIdleState(city, "full"),
+      status: "failed",
+      lastErrorStatus: "full_checkpoint_not_found",
+      updatedAt: new Date().toISOString(),
+    };
+    writeCurrentState(currentTask, dependencies.checkpointDir);
+    return getYouzhaoCollectionTask(dependencies.checkpointDir, { city, mode });
+  }
+  const baseState = checkpoint ? checkpointToState(checkpoint) : buildIdleState(city, mode);
   currentTask = baseState;
   processedSourceIdHashes = new Set(checkpoint?.processedSourceIdHashes ?? []);
 
@@ -238,7 +278,7 @@ export async function startYouzhaoCollectionTask(
   const normalized = normalizeTaskInput(input);
   if (normalized.mode === "full" && (!normalized.confirmed || !Number.isFinite(normalized.confirmedTotal))) {
     currentTask = {
-      ...buildIdleState(normalized.city),
+      ...buildIdleState(normalized.city, "full"),
       mode: "full",
       status: "failed",
       pageSize: normalized.pageSize,
@@ -247,12 +287,12 @@ export async function startYouzhaoCollectionTask(
       updatedAt: new Date().toISOString(),
     };
     writeCurrentState(currentTask, dependencies.checkpointDir);
-    return getYouzhaoCollectionTask();
+    return getYouzhaoCollectionTask(dependencies.checkpointDir, { city: normalized.city, mode: "full" });
   }
 
   const startedAt = new Date().toISOString();
   const initialState: YouzhaoCollectionTaskState = {
-    ...buildIdleState(normalized.city),
+    ...buildIdleState(normalized.city, normalized.mode),
     mode: normalized.mode,
     status: "running",
     currentPage: 1,
@@ -261,7 +301,11 @@ export async function startYouzhaoCollectionTask(
     maxPages: normalized.maxPages,
     maxItems: normalized.maxItems,
     totalFromApi: null,
+    totalPages: normalized.confirmedTotal && normalized.mode === "full"
+      ? Math.ceil(normalized.confirmedTotal / normalized.pageSize)
+      : null,
     confirmedTotal: normalized.confirmedTotal,
+    completedPages: [],
     startedAt,
     updatedAt: startedAt,
   };
@@ -326,6 +370,10 @@ async function runYouzhaoCollectionTask(
       processedPages: currentTask.processedPages + 1,
       processedItems: currentTask.processedItems + processedThisPage,
       totalFromApi: pageResult.result.total ?? currentTask.totalFromApi,
+      totalPages: pageResult.result.total !== null
+        ? Math.ceil(pageResult.result.total / currentTask.pageSize)
+        : currentTask.totalPages,
+      completedPages: [...currentTask.completedPages, page],
       counts: {
         imported: currentTask.counts.imported + imported,
         duplicate: currentTask.counts.duplicate + duplicate,
@@ -398,7 +446,7 @@ function normalizeTaskInput(
     };
   }
 
-  const pageSize = normalizeBoundedInteger(input.pageSize, 20, 1, 50, "pageSize");
+  const pageSize = normalizeBoundedInteger(input.pageSize, 50, 1, 50, "pageSize");
   return {
     city,
     mode: "full",
@@ -434,13 +482,27 @@ function shouldStopBeforeNextPage(state: YouzhaoCollectionTaskState): boolean {
 
 function finalizeCompletedState(state: YouzhaoCollectionTaskState): YouzhaoCollectionTaskState {
   if (state.mode === "smoke") {
-    return { ...state, status: "smoke_completed", updatedAt: new Date().toISOString() };
+    return {
+      ...state,
+      status: "smoke_completed",
+      countConsistencyPassed: null,
+      countDifference: null,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   const expectedTotal = state.totalFromApi ?? state.confirmedTotal ?? null;
   const actual = state.counts.imported + state.counts.duplicate + state.counts.update_candidate + state.counts.invalid;
-  const status: YouzhaoTaskStatus = expectedTotal === null || actual === expectedTotal ? "completed" : "count_mismatch";
-  return { ...state, status, updatedAt: new Date().toISOString() };
+  const countDifference = expectedTotal === null ? null : actual - expectedTotal;
+  const countConsistencyPassed = expectedTotal !== null && countDifference === 0 && state.failedPages.length === 0;
+  const status: YouzhaoTaskStatus = countConsistencyPassed ? "completed" : "count_mismatch";
+  return {
+    ...state,
+    status,
+    countConsistencyPassed,
+    countDifference,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function finalizeFailedPage(
@@ -554,11 +616,11 @@ function writeCheckpoint(state: YouzhaoCollectionTaskState, checkpointDir?: stri
     schemaVersion: 1,
     processedSourceIdHashes: Array.from(processedSourceIdHashes).sort(),
   };
-  const checkpointPath = getYouzhaoCheckpointPath(state.city, checkpointDir);
+  const checkpointPath = getYouzhaoCheckpointPath(state.city, checkpointDir, state.mode);
   mkdirSync(checkpointDir ?? DEFAULT_CHECKPOINT_DIR, { recursive: true });
   const temporaryPath = `${checkpointPath}.tmp`;
   writeFileSync(temporaryPath, JSON.stringify(checkpoint, null, 2), "utf8");
-  renameSync(temporaryPath, checkpointPath);
+  replaceFileSync(temporaryPath, checkpointPath);
   writeCurrentState(state, checkpointDir);
 }
 
@@ -568,7 +630,28 @@ function writeCurrentState(state: YouzhaoCollectionTaskState, checkpointDir?: st
   mkdirSync(directory, { recursive: true });
   const temporaryPath = `${currentPath}.tmp`;
   writeFileSync(temporaryPath, JSON.stringify(cloneState(state), null, 2), "utf8");
-  renameSync(temporaryPath, currentPath);
+  replaceFileSync(temporaryPath, currentPath);
+}
+
+function replaceFileSync(temporaryPath: string, targetPath: string): void {
+  try {
+    renameSync(temporaryPath, targetPath);
+  } catch (error) {
+    if (!isWindowsReplacePermissionError(error)) {
+      throw error;
+    }
+    rmSync(targetPath, { force: true });
+    renameSync(temporaryPath, targetPath);
+  }
+}
+
+function isWindowsReplacePermissionError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code !== undefined &&
+    ["EPERM", "EACCES"].includes(String((error as NodeJS.ErrnoException).code))
+  );
 }
 
 function readCurrentState(checkpointDir?: string): YouzhaoCollectionTaskState | null {
@@ -582,6 +665,51 @@ function readCurrentState(checkpointDir?: string): YouzhaoCollectionTaskState | 
     return null;
   }
   return cloneState(parsed);
+}
+
+function readTaskStateByLookup(
+  checkpointDir: string,
+  options: YouzhaoTaskLookupOptions,
+): YouzhaoCollectionTaskState | null {
+  const city = typeof options.city === "string" ? options.city.trim() : "";
+  const mode = options.mode;
+  if (currentTask.status !== "idle") {
+    const cityMatches = !city || currentTask.city === city;
+    const modeMatches = !mode || currentTask.mode === mode;
+    if (cityMatches && modeMatches) {
+      return cloneState(currentTask);
+    }
+  }
+
+  const current = readCurrentState(checkpointDir);
+  if (current) {
+    const cityMatches = !city || current.city === city;
+    const modeMatches = !mode || current.mode === mode;
+    if (cityMatches && modeMatches) {
+      return cloneState(current);
+    }
+  }
+
+  if (city && mode) {
+    const checkpoint = readCheckpoint(city, checkpointDir, mode);
+    return checkpoint ? checkpointToStateForCurrent(checkpoint) : null;
+  }
+
+  if (city) {
+    const states = (["full", "smoke"] as const)
+      .map((candidateMode) => readCheckpoint(city, checkpointDir, candidateMode))
+      .filter((checkpoint): checkpoint is YouzhaoCollectionCheckpoint => Boolean(checkpoint))
+      .map(checkpointToStateForCurrent)
+      .sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+    return states[0] ?? null;
+  }
+
+  if (mode) {
+    const latest = readLatestCheckpointState(checkpointDir);
+    return latest?.mode === mode ? latest : null;
+  }
+
+  return null;
 }
 
 function readLatestCheckpointState(checkpointDir: string): YouzhaoCollectionTaskState | null {
@@ -629,8 +757,12 @@ function isTaskStateLike(value: Partial<YouzhaoCollectionTaskState>): value is Y
   );
 }
 
-function readCheckpoint(city: string, checkpointDir?: string): YouzhaoCollectionCheckpoint | null {
-  const checkpointPath = getYouzhaoCheckpointPath(city, checkpointDir);
+function readCheckpoint(
+  city: string,
+  checkpointDir?: string,
+  mode: YouzhaoTaskMode = "smoke",
+): YouzhaoCollectionCheckpoint | null {
+  const checkpointPath = getYouzhaoCheckpointPath(city, checkpointDir, mode);
   if (!existsSync(checkpointPath)) {
     return null;
   }
@@ -639,7 +771,7 @@ function readCheckpoint(city: string, checkpointDir?: string): YouzhaoCollection
     return null;
   }
   return {
-    ...buildIdleState(city),
+    ...buildIdleState(city, parsed.mode === "full" ? "full" : mode),
     ...parsed,
     schemaVersion: 1,
     processedSourceIdHashes: Array.isArray(parsed.processedSourceIdHashes)
@@ -657,17 +789,21 @@ function checkpointToState(checkpoint: YouzhaoCollectionCheckpoint): YouzhaoColl
   };
 }
 
-function buildIdleState(city: string): YouzhaoCollectionTaskState {
+function buildIdleState(city: string, mode: YouzhaoTaskMode = "smoke"): YouzhaoCollectionTaskState {
   return {
     city,
-    mode: "smoke",
+    mode,
     status: "idle",
     currentPage: 0,
     nextPage: 1,
-    pageSize: SMOKE_PAGE_SIZE,
+    pageSize: mode === "full" ? 50 : SMOKE_PAGE_SIZE,
     processedPages: 0,
     processedItems: 0,
     totalFromApi: null,
+    totalPages: null,
+    completedPages: [],
+    countConsistencyPassed: null,
+    countDifference: null,
     counts: {
       imported: 0,
       duplicate: 0,
@@ -683,6 +819,10 @@ function buildIdleState(city: string): YouzhaoCollectionTaskState {
 function cloneState(state: YouzhaoCollectionTaskState): YouzhaoCollectionTaskState {
   return {
     ...state,
+    totalPages: state.totalPages ?? null,
+    completedPages: Array.isArray(state.completedPages) ? [...state.completedPages] : [],
+    countConsistencyPassed: state.countConsistencyPassed ?? null,
+    countDifference: state.countDifference ?? null,
     counts: { ...state.counts },
     targetLayerCounts: { ...state.targetLayerCounts },
     failedPages: state.failedPages.map((page) => ({ ...page })),

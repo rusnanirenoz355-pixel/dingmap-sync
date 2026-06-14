@@ -15,7 +15,7 @@ export async function POST(request: Request): Promise<Response> {
           mode,
           confirmed: body.confirmed === true,
           confirmedTotal: typeof body.confirmedTotal === "number" ? body.confirmedTotal : undefined,
-          pageSize: typeof body.pageSize === "number" ? body.pageSize : undefined,
+          pageSize: 50,
         };
     return taskResponse(await startYouzhaoCollectionTask(input, taskDependencies()));
   } catch (error) {

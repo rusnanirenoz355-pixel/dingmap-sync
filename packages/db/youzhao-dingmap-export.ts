@@ -12,21 +12,27 @@ import { resolveDatabasePath } from "./database-url";
 
 export interface YouzhaoDingmapExportOptions {
   city: unknown;
+  targetLayer?: unknown;
   outputDir?: string;
   batchSize?: number;
   partial?: boolean;
 }
 
-export interface YouzhaoDingmapExportGroup {
+export interface YouzhaoDingmapExportFile {
   targetLayer: DingmapTargetLayer;
-  rowCount: number;
-  files: string[];
+  count: number;
+  filename: string;
+  downloadUrl: string;
+  batch: number;
 }
 
 export interface YouzhaoDingmapExportResult {
   city: string;
-  totalRows: number;
-  groups: YouzhaoDingmapExportGroup[];
+  targetLayer: DingmapTargetLayer | "all";
+  totalExported: number;
+  missingCityExcluded: number;
+  files: YouzhaoDingmapExportFile[];
+  message: string | null;
 }
 
 type CleanMarkerDbRow = {
@@ -64,35 +70,49 @@ type YouzhaoRawMetadata = {
   businessLine: string;
 };
 
+type ExportCityScope = { type: "all" } | { type: "city"; city: string; cityKey: string };
+
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_EXPORT_DIR = join(PROJECT_ROOT, "data", "exports");
 const DEFAULT_BATCH_SIZE = 2000;
+const ALL_CITIES = "all";
+const ALL_LAYERS = "all";
+const ALL_CITIES_FILENAME_LABEL = "全部城市";
 const TARGET_LAYERS: DingmapTargetLayer[] = ["美团点", "淘宝点", "买菜点", "其他点", "商超点"];
 
 export async function exportYouzhaoDingmapTemplates(
   options: YouzhaoDingmapExportOptions,
 ): Promise<YouzhaoDingmapExportResult> {
-  const city = normalizeExportCity(options.city);
+  const cityScope = normalizeExportCityScope(options.city);
+  const targetLayer = normalizeExportTargetLayer(options.targetLayer);
   const outputDir = options.outputDir ?? DEFAULT_EXPORT_DIR;
   const batchSize = normalizeBatchSize(options.batchSize);
   const database = new DatabaseSync(resolveDatabasePath());
 
   try {
     const metadataBySourceId = loadYouzhaoRawMetadata(database);
-    const candidates = listYouzhaoCleanMarkers(database)
-      .map((marker) => ({
-        marker,
-        metadata: marker.sourceId ? metadataBySourceId.get(marker.sourceId) : undefined,
-      }))
+    const annotatedCandidates = listYouzhaoCleanMarkers(database).map((marker) => ({
+      marker,
+      metadata: marker.sourceId ? metadataBySourceId.get(marker.sourceId) : undefined,
+    }));
+    const missingCityExcluded = annotatedCandidates.filter((entry) => !normalizeCityKey(entry.metadata?.city)).length;
+    const candidates = annotatedCandidates
       .filter((entry): entry is { marker: CleanMarker; metadata: YouzhaoRawMetadata } =>
-        entry.metadata?.city === city,
+        Boolean(normalizeCityKey(entry.metadata?.city)),
+      )
+      .filter((entry) => cityScope.type === "all" || normalizeCityKey(entry.metadata.city) === cityScope.cityKey)
+      .filter((entry) =>
+        targetLayer === ALL_LAYERS ||
+        mapBusinessLineToDingmapLayer(entry.metadata.businessLine) === targetLayer,
       )
       .sort(compareYouzhaoExportEntries);
 
     mkdirSync(outputDir, { recursive: true });
-    const groups: YouzhaoDingmapExportGroup[] = [];
+    const files: YouzhaoDingmapExportFile[] = [];
+    const cityFilenameLabel = cityScope.type === "all" ? ALL_CITIES_FILENAME_LABEL : cityScope.city;
+    const layersToExport = targetLayer === ALL_LAYERS ? TARGET_LAYERS : [targetLayer];
 
-    for (const layer of TARGET_LAYERS) {
+    for (const layer of layersToExport) {
       const layerMarkers = candidates
         .filter((entry) => mapBusinessLineToDingmapLayer(entry.metadata.businessLine) === layer)
         .map((entry) => forceYouzhaoDingmapCoordinatesEmpty(entry.marker));
@@ -100,10 +120,9 @@ export async function exportYouzhaoDingmapTemplates(
         continue;
       }
 
-      const files: string[] = [];
       const batches = chunk(layerMarkers, batchSize);
       const preferredFilenames = buildYouzhaoBatchFilenames({
-        city,
+        city: cityFilenameLabel,
         targetLayer: layer,
         rowCount: layerMarkers.length,
         batchSize,
@@ -112,23 +131,26 @@ export async function exportYouzhaoDingmapTemplates(
       for (const [batchIndex, batch] of batches.entries()) {
         const filename = resolveUniqueFilename(
           outputDir,
-          preferredFilenames[batchIndex] ?? buildYouzhaoExportFilename({ city, targetLayer: layer }),
+          preferredFilenames[batchIndex] ?? buildYouzhaoExportFilename({ city: cityFilenameLabel, targetLayer: layer }),
         );
         await writeDingmapOneClickExport(batch, join(outputDir, filename));
-        files.push(filename);
+        files.push({
+          targetLayer: layer,
+          count: batch.length,
+          filename,
+          downloadUrl: `/api/dingmap/download/${encodeURIComponent(filename)}`,
+          batch: batchIndex + 1,
+        });
       }
-
-      groups.push({
-        targetLayer: layer,
-        rowCount: layerMarkers.length,
-        files,
-      });
     }
 
     return {
-      city,
-      totalRows: candidates.length,
-      groups,
+      city: cityScope.type === "all" ? ALL_CITIES : cityScope.city,
+      targetLayer,
+      totalExported: files.reduce((total, file) => total + file.count, 0),
+      missingCityExcluded,
+      files,
+      message: buildExportMessage(files.length, missingCityExcluded),
     };
   } finally {
     database.close();
@@ -167,18 +189,32 @@ export function buildYouzhaoBatchFilenames(input: {
   );
 }
 
-function normalizeExportCity(value: unknown): string {
+function normalizeExportCityScope(value: unknown): ExportCityScope {
   if (Array.isArray(value)) {
-    throw new Error("一次只能导出一个城市。");
+    throw new Error("一次只能导出一个城市范围。");
   }
   const city = typeof value === "string" ? value.trim() : "";
   if (!city) {
-    throw new Error("必须选择一个城市。");
+    throw new Error("必须选择一个城市范围。");
+  }
+  if (city.toLowerCase() === ALL_CITIES) {
+    return { type: "all" };
   }
   if (city.includes(",") || city.includes("，") || city === "全国" || city === "全国全部") {
-    throw new Error("一次只能导出一个城市。");
+    throw new Error("全部城市导出请使用 city = \"all\"，不要使用全国采集语义。");
   }
-  return city;
+  return { type: "city", city, cityKey: normalizeCityKey(city) };
+}
+
+function normalizeExportTargetLayer(value: unknown): DingmapTargetLayer | "all" {
+  const targetLayer = typeof value === "string" ? value.trim() : "";
+  if (!targetLayer || targetLayer.toLowerCase() === ALL_LAYERS) {
+    return ALL_LAYERS;
+  }
+  if (TARGET_LAYERS.includes(targetLayer as DingmapTargetLayer)) {
+    return targetLayer as DingmapTargetLayer;
+  }
+  throw new Error("目标图层无效。");
 }
 
 function normalizeBatchSize(value: number | undefined): number {
@@ -189,6 +225,21 @@ function normalizeBatchSize(value: number | undefined): number {
     throw new Error("batchSize 必须在 1 到 2000 之间。");
   }
   return value;
+}
+
+function buildExportMessage(fileCount: number, missingCityExcluded: number): string | null {
+  if (fileCount === 0) {
+    return "当前筛选范围没有可导出数据";
+  }
+  if (missingCityExcluded > 0) {
+    return `已排除 ${missingCityExcluded} 条缺少城市的数据`;
+  }
+  return null;
+}
+
+function normalizeCityKey(value: unknown): string {
+  const city = normalizeText(value).replace(/\s+/g, "");
+  return city.endsWith("市") ? city.slice(0, -1) : city;
 }
 
 function listYouzhaoCleanMarkers(database: DatabaseSync): CleanMarker[] {
@@ -225,7 +276,7 @@ function loadYouzhaoRawMetadata(database: DatabaseSync): Map<string, YouzhaoRawM
     const sourceId = normalizeText(parsed.mapped?.sourceId) || normalizeText(parsed.raw?.jobId);
     const city = normalizeText(parsed.raw?.city);
     const businessLine = normalizeText(parsed.raw?.businessLine) || normalizeText(parsed.raw?.["业务线"]);
-    if (!sourceId || !city) {
+    if (!sourceId) {
       continue;
     }
     metadata.set(sourceId, { city, businessLine });

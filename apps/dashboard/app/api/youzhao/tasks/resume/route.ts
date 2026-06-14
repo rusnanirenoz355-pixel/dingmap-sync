@@ -6,7 +6,11 @@ export { runtime };
 export async function POST(request: Request): Promise<Response> {
   try {
     const body = await readJsonBody(request);
-    return taskResponse(await resumeYouzhaoCollectionTask(requireCity(body), taskDependencies()));
+    const mode = body.mode === "full" ? "full" : "smoke";
+    return taskResponse(await resumeYouzhaoCollectionTask(requireCity(body), {
+      ...taskDependencies(),
+      mode,
+    }));
   } catch (error) {
     return taskErrorResponse(error);
   }

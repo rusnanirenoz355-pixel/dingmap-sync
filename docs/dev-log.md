@@ -737,3 +737,43 @@ chore: initialize dingmap sync workspace refs #ISSUE_NUMBER
 * 真实 smoke 会写入本地 Clean Table，最多 40 条，数据不得提交到 Git。
 * full 能力已受确认保护，但实际杭州 full 尚未执行。
 * 是否已执行杭州全量：否。
+
+## 2026-06-14：Task 007-C 优招导出筛选组合补充
+
+### 已完成
+
+* 优招导出将“城市范围”和“目标图层”拆成两个独立筛选项。
+* 城市范围支持当前指定城市和 `city = "all"`。
+* 目标图层支持 `targetLayer = "all"` 以及美团点、淘宝点、买菜点、其他点、商超点。
+* 已支持四种组合：单城市 + 单图层、单城市 + 全部图层、全部城市 + 单图层、全部城市 + 全部图层。
+* `city = "all"` 只读取本地 Clean Table 中已采集的 `youzhao / web` 有效数据，不请求优招接口，不自动遍历城市。
+* 全部城市导出会排除 `raw.city` 缺失记录并返回 `missingCityExcluded`。
+* 导出返回结构统一为 `city / targetLayer / totalExported / missingCityExcluded / files / message`。
+* 合法筛选无数据时返回 `files = []`、`totalExported = 0`，不生成空 Excel。
+* Dashboard 优招导出区域新增“城市范围”和“目标图层”两个 select。
+* 单城市导出匹配会标准化城市文本，兼容本地 raw 中带“市”后缀的城市值，例如导出参数为城市简称时仍能命中对应本地数据。
+
+### 杭州 full 导出对账
+
+* API 招聘中 total：786。
+* invalid：15。
+* 有效处理数：771。
+* 实际可导出 Clean Marker：768。
+* 未导出数量：3。
+* 明确原因：源 API 返回中存在 3 条重复 `sourceId` 记录；Task 007 以每个岗位 `sourceId` 为稳定记录粒度，不为重复 `sourceId` 伪造新记录。
+* 排除项复查：`missingCity = 0`、`softDeletedExcluded = 0`、`missingRawAssociation = 0`、`cityMismatch = 0`、`mappingInvalidExcluded = 0`。
+* 对账公式成立：`771 = 768 + 3`。
+
+### 验证
+
+* `corepack pnpm check` 通过。
+* `corepack pnpm lint` 通过。
+* `corepack pnpm test` 通过。
+* `corepack pnpm verify` 通过。
+* 敏感文件跟踪检查无命中。
+
+### 边界
+
+* 未执行钉图上传。
+* 未触发优招网络采集。
+* 未提交真实岗位数据、真实地址、真实手机号、DB、导出文件、截图、HAR、cookie 或 token。

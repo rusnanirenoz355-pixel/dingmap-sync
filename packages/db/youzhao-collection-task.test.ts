@@ -65,6 +65,146 @@ describe("youzhao collection task service", () => {
     expect(result.counts.invalid).toBe(0);
   });
 
+  it("keeps full checkpoints separate from smoke and restarts full from page one", async () => {
+    const city = "杭州";
+    const fullRequestedPages: number[] = [];
+
+    await startYouzhaoCollectionTask(
+      { city, mode: "smoke" },
+      {
+        checkpointDir,
+        collectPage: async ({ page }) => successPage(page, 20, 99),
+        importRows: async (rows) => ({
+          inserted: rows.length,
+          updated: 0,
+          skippedDuplicate: 0,
+          skippedInvalid: 0,
+          skippedOther: 0,
+          updateCandidate: 0,
+          cleanMarkers: [],
+        }),
+      },
+    );
+    const full = await startYouzhaoCollectionTask(
+      { city, mode: "full", confirmed: true, confirmedTotal: 2, pageSize: 1 },
+      {
+        checkpointDir,
+        collectPage: async ({ page }) => {
+          fullRequestedPages.push(page);
+          return successPage(page, 1, 2);
+        },
+        importRows: async (rows) => ({
+          inserted: rows.length,
+          updated: 0,
+          skippedDuplicate: 0,
+          skippedInvalid: 0,
+          skippedOther: 0,
+          updateCandidate: 0,
+          cleanMarkers: [],
+        }),
+      },
+    );
+
+    const smokePath = getYouzhaoCheckpointPath(city, checkpointDir);
+    const fullPath = getYouzhaoCheckpointPath(city, checkpointDir, "full");
+    const smokeCheckpoint = JSON.parse(readFileSync(smokePath, "utf8")) as { mode: string; processedSourceIdHashes: string[] };
+    const fullCheckpoint = JSON.parse(readFileSync(fullPath, "utf8")) as {
+      mode: string;
+      pageSize: number;
+      totalPages: number;
+      completedPages: number[];
+      processedSourceIdHashes: string[];
+    };
+
+    expect(smokePath).toContain(`${encodeURIComponent(city)}.json`);
+    expect(fullPath).toContain(`${encodeURIComponent(city)}.full.json`);
+    expect(fullRequestedPages).toEqual([1, 2]);
+    expect(full.status).toBe("completed");
+    expect(full.totalPages).toBe(2);
+    expect(full.completedPages).toEqual([1, 2]);
+    expect(full.countConsistencyPassed).toBe(true);
+    expect(full.countDifference).toBe(0);
+    expect(smokeCheckpoint.mode).toBe("smoke");
+    expect(fullCheckpoint.mode).toBe("full");
+    expect(fullCheckpoint.pageSize).toBe(1);
+    expect(fullCheckpoint.totalPages).toBe(2);
+    expect(fullCheckpoint.completedPages).toEqual([1, 2]);
+    expect(fullCheckpoint.processedSourceIdHashes).toHaveLength(2);
+    expect(fullCheckpoint.processedSourceIdHashes).not.toEqual(smokeCheckpoint.processedSourceIdHashes);
+  });
+
+  it("reports exact full current state by city and mode without falling back to smoke", async () => {
+    const city = "\u676d\u5dde";
+    await startYouzhaoCollectionTask(
+      { city, mode: "smoke" },
+      {
+        checkpointDir,
+        collectPage: async ({ page }) => successPage(page, 20, 99),
+        importRows: async (rows) => ({
+          inserted: rows.length,
+          updated: 0,
+          skippedDuplicate: 0,
+          skippedInvalid: 0,
+          skippedOther: 0,
+          updateCandidate: 0,
+          cleanMarkers: [],
+        }),
+      },
+    );
+    await startYouzhaoCollectionTask(
+      { city, mode: "full", confirmed: true, confirmedTotal: 1, pageSize: 1 },
+      {
+        checkpointDir,
+        collectPage: async ({ page }) => successPage(page, 1, 1),
+        importRows: async (rows) => ({
+          inserted: rows.length,
+          updated: 0,
+          skippedDuplicate: 0,
+          skippedInvalid: 0,
+          skippedOther: 0,
+          updateCandidate: 0,
+          cleanMarkers: [],
+        }),
+      },
+    );
+
+    const fullCurrent = getYouzhaoCollectionTask(checkpointDir, { city, mode: "full" });
+    const smokeCurrent = getYouzhaoCollectionTask(checkpointDir, { city, mode: "smoke" });
+
+    expect(fullCurrent.mode).toBe("full");
+    expect(fullCurrent.status).toBe("completed");
+    expect(fullCurrent.completedPages).toEqual([1]);
+    expect(smokeCurrent.mode).toBe("smoke");
+    expect(smokeCurrent.status).toBe("smoke_completed");
+  });
+
+  it("defaults confirmed full tasks to page size fifty", async () => {
+    const requestedPageSizes: number[] = [];
+    const result = await startYouzhaoCollectionTask(
+      { city: "\u676d\u5dde", mode: "full", confirmed: true, confirmedTotal: 1 },
+      {
+        checkpointDir,
+        collectPage: async ({ pageSize }) => {
+          requestedPageSizes.push(pageSize);
+          return successPage(1, 1, 1);
+        },
+        importRows: async (rows) => ({
+          inserted: rows.length,
+          updated: 0,
+          skippedDuplicate: 0,
+          skippedInvalid: 0,
+          skippedOther: 0,
+          updateCandidate: 0,
+          cleanMarkers: [],
+        }),
+      },
+    );
+
+    expect(requestedPageSizes).toEqual([50]);
+    expect(result.pageSize).toBe(50);
+    expect(result.status).toBe("completed");
+  });
+
   it("writes safe checkpoints with schema version and source id hashes only", async () => {
     await startYouzhaoCollectionTask(
       { city: "杭/州", mode: "smoke" },
@@ -154,6 +294,8 @@ describe("youzhao collection task service", () => {
 
     expect(result.status).toBe("count_mismatch");
     expect(result.totalFromApi).toBe(3);
+    expect(result.countConsistencyPassed).toBe(false);
+    expect(result.countDifference).toBe(-1);
     expect(result.counts.imported).toBe(2);
     expect(result.counts.filteredNonRecruiting).toBe(1);
   });
