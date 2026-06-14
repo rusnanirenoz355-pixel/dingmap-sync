@@ -123,21 +123,45 @@ describe("clean marker management service", () => {
     expect(listManagedCleanMarkers({ source: "excel" }).rows[0]?.source).toBe("excel");
   });
 
-  it("derives missing coordinate, invalid coordinate, error, and duplicate anomalies", () => {
+  it("derives anomalies only from missing site name or address", () => {
     const duplicateKey = "site_address:duplicate:alpha-road";
-    seedMarker({ siteName: "Missing Coord", longitude: null });
-    seedMarker({ siteName: "Invalid Coord", longitude: 181 });
-    seedMarker({ siteName: "Error Site", errorMsg: "Synthetic error" });
-    seedMarker({ siteName: "Duplicate One", mergeKey: duplicateKey });
-    seedMarker({ siteName: "Duplicate Two", mergeKey: duplicateKey });
+    seedMarker({
+      siteName: "Normal Without Optional Fields",
+      address: "Normal Road",
+      longitude: null,
+      latitude: null,
+      phone: null,
+      interviewTime: null,
+      errorMsg: "Synthetic error no longer marks anomaly",
+      mergeKey: duplicateKey,
+    });
+    seedMarker({
+      siteName: "Duplicate With Address",
+      address: "Normal Road",
+      longitude: 181,
+      latitude: 91,
+      mergeKey: duplicateKey,
+    });
+    seedMarker({ siteName: "  ", address: "Has Address" });
+    seedMarker({ siteName: "Has Name", address: "  " });
+    seedMarker({ siteName: "  ", address: "  " });
 
-    const rows = listManagedCleanMarkers({ anomalyOnly: true, pageSize: 20 }).rows;
-    const reasons = rows.flatMap((row) => row.anomalyReasons);
+    const allRows = listManagedCleanMarkers({ pageSize: 20 }).rows;
+    const anomalyRows = listManagedCleanMarkers({ anomalyOnly: true, pageSize: 20 }).rows;
 
-    expect(reasons).toContain("missing_coordinates");
-    expect(reasons).toContain("invalid_coordinates");
-    expect(reasons).toContain("has_error");
-    expect(reasons).toContain("possible_duplicate");
+    expect(allRows.filter((row) => row.managementStatus === "normal")).toHaveLength(2);
+    expect(anomalyRows).toHaveLength(3);
+    expect(anomalyRows.flatMap((row) => row.anomalyReasons)).toEqual(
+      expect.arrayContaining(["missing_site_name", "missing_address"]),
+    );
+    expect(anomalyRows.flatMap((row) => row.anomalyReasons)).not.toEqual(
+      expect.arrayContaining([
+        "missing_coordinates",
+        "invalid_coordinates",
+        "has_error",
+        "possible_duplicate",
+      ]),
+    );
   });
 
   it("updates only editable fields and recomputes merge key, hash, and sync state", () => {

@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 
 describe("youzhao Dashboard preview UI", () => {
   const source = readFileSync(join(process.cwd(), "apps", "dashboard", "app", "page.tsx"), "utf8");
+  const scrollFrameSource = readFileSync(
+    join(process.cwd(), "apps", "dashboard", "app", "components", "TableScrollFrame.tsx"),
+    "utf8",
+  );
 
   it("shows all Task 007-A2 field confirmation columns", () => {
     [
@@ -42,9 +46,9 @@ describe("youzhao Dashboard preview UI", () => {
   it("shows the minimal Youzhao DingMap export controls", () => {
     [
       "导出钉图 Excel",
-      "当前城市",
-      "城市范围",
+      "导出城市",
       "全部城市",
+      "youzhaoExportCities",
       "目标图层",
       "全部图层",
       "生成文件",
@@ -57,6 +61,26 @@ describe("youzhao Dashboard preview UI", () => {
       "downloadUrl",
     ].forEach((text) => {
       expect(source).toContain(text);
+    });
+    expect(source).not.toContain("exportCityScope");
+    expect(source).not.toContain("value=\"current\"");
+    expect(source).not.toContain("<option value=\"current\">当前城市</option>");
+  });
+
+  it("keeps the Dashboard Clean Table inside a bounded sticky-header scroll frame", () => {
+    [
+      "TableScrollFrame",
+      "max-h-[360px]",
+      "md:max-h-[420px]",
+      "overflow-x-auto",
+      "overflow-y-auto",
+      "scrollbarGutter",
+      "min-w-0",
+      "sticky top-0",
+      "z-10",
+      "bg-tableHead",
+    ].forEach((text) => {
+      expect(`${source}\n${scrollFrameSource}`).toContain(text);
     });
   });
 

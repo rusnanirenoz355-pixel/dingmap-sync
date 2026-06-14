@@ -8,6 +8,7 @@ import {
   buildYouzhaoBatchFilenames,
   buildYouzhaoExportFilename,
   exportYouzhaoDingmapTemplates,
+  listYouzhaoExportCities,
 } from "./youzhao-dingmap-export";
 
 const databasePath = join(process.cwd(), "data", "test-youzhao-dingmap-export.db");
@@ -127,6 +128,41 @@ describe("youzhao DingMap grouped export", () => {
       count: 1,
       filename: `\u4f18\u62db-${hangzhou}-${meituanLayer}.xlsx`,
     });
+  });
+
+  it("lists export cities from persisted active youzhao web raw metadata only", () => {
+    const database = new DatabaseSync(databasePath);
+    insertYouzhaoMarker(database, {
+      sourceId: "hz-city-a",
+      city: " \u676d\u5dde\u5e02 ",
+      businessLine: "\u7f8e\u56e2",
+    });
+    insertYouzhaoMarker(database, {
+      sourceId: "sh-city-a",
+      city: "\u4e0a\u6d77",
+      businessLine: "\u7f8e\u56e2",
+    });
+    insertYouzhaoMarker(database, {
+      sourceId: "hz-city-b",
+      city: "\u676d\u5dde",
+      businessLine: "\u53ee\u549a",
+    });
+    insertYouzhaoMarker(database, {
+      sourceId: "deleted-city",
+      city: "\u82cf\u5dde",
+      businessLine: "\u7f8e\u56e2",
+      deletedAt: "2026-06-14T00:00:00.000Z",
+    });
+    insertYouzhaoMarker(database, {
+      sourceId: "missing-city",
+      city: "",
+      businessLine: "\u7f8e\u56e2",
+    });
+    insertNonYouzhaoMarker(database, "manual_paste");
+    insertNonYouzhaoMarker(database, "excel");
+    database.close();
+
+    expect(listYouzhaoExportCities()).toEqual(["\u676d\u5dde", "\u4e0a\u6d77"]);
   });
 
   it("exports one city and all target layers by layer without empty files", async () => {

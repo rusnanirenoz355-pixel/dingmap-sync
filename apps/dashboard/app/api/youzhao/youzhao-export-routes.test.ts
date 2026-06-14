@@ -1,13 +1,15 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { exportYouzhaoDingmapTemplates } from "@dingmap-sync/db/youzhao-dingmap-export";
+import { exportYouzhaoDingmapTemplates, listYouzhaoExportCities } from "@dingmap-sync/db/youzhao-dingmap-export";
 import { getYouzhaoCollectionTask } from "@dingmap-sync/db/youzhao-collection-task";
 import { GET as downloadGet } from "../dingmap/download/[filename]/route";
+import { GET as citiesGet } from "./cities/route";
 import { POST as exportPost } from "./export/route";
 
 vi.mock("@dingmap-sync/db/youzhao-dingmap-export", () => ({
   exportYouzhaoDingmapTemplates: vi.fn(),
+  listYouzhaoExportCities: vi.fn(),
 }));
 
 vi.mock("@dingmap-sync/db/youzhao-collection-task", () => ({
@@ -23,6 +25,7 @@ const safeChineseFilename = `\u4f18\u62db-${hangzhou}-${groceryLayer}.xlsx`;
 describe("youzhao DingMap export API routes", () => {
   beforeEach(() => {
     vi.mocked(exportYouzhaoDingmapTemplates).mockReset();
+    vi.mocked(listYouzhaoExportCities).mockReset();
     vi.mocked(getYouzhaoCollectionTask).mockReset();
     mkdirSync(exportDir, { recursive: true });
     const filePath = join(exportDir, safeChineseFilename);
@@ -163,6 +166,18 @@ describe("youzhao DingMap export API routes", () => {
     expect(response.status).toBe(400);
     expect(json.error).toContain("\u57ce\u5e02");
     expect(exportYouzhaoDingmapTemplates).not.toHaveBeenCalled();
+  });
+
+  it("returns only local persisted youzhao cities without record details", async () => {
+    vi.mocked(listYouzhaoExportCities).mockReturnValue([hangzhou]);
+
+    const response = await citiesGet();
+    const json = await response.json() as { cities: string[]; rows?: unknown[]; phone?: unknown };
+
+    expect(response.status).toBe(200);
+    expect(json).toEqual({ cities: [hangzhou] });
+    expect(JSON.stringify(json)).not.toContain("phone");
+    expect(JSON.stringify(json)).not.toContain("address");
   });
 
   it("downloads only safe files from data exports with encoded Chinese filenames", async () => {

@@ -7,12 +7,20 @@ describe("data management table scrolling UI", () => {
     join(process.cwd(), "apps", "dashboard", "app", "data-management", "page.tsx"),
     "utf8",
   );
+  const drawerSource = readFileSync(
+    join(process.cwd(), "apps", "dashboard", "app", "components", "ManagementDrawer.tsx"),
+    "utf8",
+  );
+  const scrollFrameSource = readFileSync(
+    join(process.cwd(), "apps", "dashboard", "app", "components", "TableScrollFrame.tsx"),
+    "utf8",
+  );
 
   it("keeps the management table inside a bounded two-axis scroll frame", () => {
     [
-      "function TableScrollFrame",
+      "TableScrollFrame",
       "min-w-0",
-      "max-h-[520px]",
+      "maxHeightClass=\"max-h-[520px]\"",
       "overflow-x-auto",
       "overflow-y-auto",
       "sticky top-0",
@@ -20,7 +28,13 @@ describe("data management table scrolling UI", () => {
       "bg-tableHead",
       "bg-white",
     ].forEach((contract) => {
-      expect(source).toContain(contract);
+      expect(`${source}\n${scrollFrameSource}`).toContain(contract);
     });
+  });
+
+  it("does not expose interview time in the management page or edit drawer", () => {
+    expect(source).not.toContain("面试时间");
+    expect(drawerSource).not.toContain("面试时间");
+    expect(drawerSource).not.toContain("interviewTime");
   });
 });

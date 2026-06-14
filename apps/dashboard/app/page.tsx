@@ -20,6 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { CleanMarker, ImportPreviewRow, ImportPreviewStatus } from "@dingmap-sync/shared";
+import { TableScrollFrame } from "./components/TableScrollFrame";
 import { TruncatedText } from "./components/TruncatedText";
 
 const navItems = ["数据源", "Raw 数据", "Clean 数据", "同步计划", "导入", "日志", "设置"];
@@ -107,7 +108,6 @@ interface YouzhaoOperationResult {
   message?: string;
 }
 
-type YouzhaoExportCityScope = "current" | "all";
 type YouzhaoExportTargetLayer = "all" | "美团点" | "淘宝点" | "买菜点" | "其他点" | "商超点";
 
 interface YouzhaoExportFile {
@@ -125,6 +125,11 @@ interface YouzhaoExportResult {
   missingCityExcluded: number;
   files: YouzhaoExportFile[];
   message: string | null;
+  error?: string;
+}
+
+interface YouzhaoCitiesResponse {
+  cities: string[];
   error?: string;
 }
 
@@ -230,8 +235,8 @@ export default function DashboardPage() {
   const [youzhaoExportResult, setYouzhaoExportResult] =
     useState<YouzhaoExportResult | null>(null);
   const [youzhaoExportErrorMsg, setYouzhaoExportErrorMsg] = useState<string | null>(null);
-  const [youzhaoExportCityScope, setYouzhaoExportCityScope] =
-    useState<YouzhaoExportCityScope>("current");
+  const [youzhaoExportCity, setYouzhaoExportCity] = useState("all");
+  const [youzhaoExportCities, setYouzhaoExportCities] = useState<string[]>([]);
   const [youzhaoExportTargetLayer, setYouzhaoExportTargetLayer] =
     useState<YouzhaoExportTargetLayer>("all");
   const [youzhaoTask, setYouzhaoTask] = useState<YouzhaoTaskState | null>(null);
@@ -302,6 +307,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void loadCleanMarkers();
+    void loadYouzhaoExportCities();
     void loadYouzhaoTask();
   }, []);
 
@@ -364,6 +370,7 @@ export default function DashboardPage() {
       setPastePreviewRows([]);
       setPasteSummary(emptySummary);
       setPasteText("");
+      void loadYouzhaoExportCities();
     } catch (error) {
       setPasteErrorMsg(error instanceof Error ? error.message : "导入 Clean Table 失败。");
     } finally {
@@ -453,6 +460,7 @@ export default function DashboardPage() {
       setExcelFilename("");
       setExcelSheetNames([]);
       setExcelSelectedSheetName("");
+      void loadYouzhaoExportCities();
     } catch (error) {
       setExcelErrorMsg(error instanceof Error ? error.message : "Excel 导入 Clean Table 失败。");
     } finally {
@@ -543,6 +551,7 @@ export default function DashboardPage() {
       setYouzhaoPreviewRows([]);
       setYouzhaoSummary(emptySummary);
       void loadCleanMarkers();
+      void loadYouzhaoExportCities();
     }
   }
 
@@ -551,14 +560,13 @@ export default function DashboardPage() {
     setYouzhaoExportResult(null);
     setLoading("youzhao-export");
     try {
-      const exportCity = youzhaoExportCityScope === "all" ? "all" : youzhaoCity;
       const response = await fetch("/api/youzhao/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           partial
-            ? { city: exportCity, targetLayer: youzhaoExportTargetLayer, partial: true }
-            : { city: exportCity, targetLayer: youzhaoExportTargetLayer },
+            ? { city: youzhaoExportCity, targetLayer: youzhaoExportTargetLayer, partial: true }
+            : { city: youzhaoExportCity, targetLayer: youzhaoExportTargetLayer },
         ),
       });
       const data = (await response.json()) as YouzhaoExportResult;
@@ -570,6 +578,24 @@ export default function DashboardPage() {
       setYouzhaoExportErrorMsg(error instanceof Error ? error.message : "优招钉图 Excel 导出失败。");
     } finally {
       setLoading(null);
+    }
+  }
+
+  async function loadYouzhaoExportCities() {
+    try {
+      const response = await fetch("/api/youzhao/cities", { cache: "no-store" });
+      const data = (await response.json()) as YouzhaoCitiesResponse;
+      if (!response.ok) {
+        throw new Error(data.error ?? "读取优招导出城市失败。");
+      }
+      const cities = Array.isArray(data.cities) ? data.cities : [];
+      setYouzhaoExportCities(cities);
+      setYouzhaoExportCity((current) =>
+        current === "all" || cities.includes(current) ? current : "all",
+      );
+    } catch {
+      setYouzhaoExportCities([]);
+      setYouzhaoExportCity("all");
     }
   }
 
@@ -877,7 +903,8 @@ export default function DashboardPage() {
         <YouzhaoPanel
           city={youzhaoCity}
           errorMsg={youzhaoErrorMsg}
-          exportCityScope={youzhaoExportCityScope}
+          exportCities={youzhaoExportCities}
+          exportCity={youzhaoExportCity}
           exportErrorMsg={youzhaoExportErrorMsg}
           exportResult={youzhaoExportResult}
           exportTargetLayer={youzhaoExportTargetLayer}
@@ -887,7 +914,7 @@ export default function DashboardPage() {
           loading={loading}
           onCheck={handleYouzhaoCheck}
           onCityChange={setYouzhaoCity}
-          onExportCityScopeChange={setYouzhaoExportCityScope}
+          onExportCityChange={setYouzhaoExportCity}
           onExportTargetLayerChange={setYouzhaoExportTargetLayer}
           onExport={handleYouzhaoExport}
           onImport={handleYouzhaoImport}
@@ -1145,7 +1172,8 @@ function stageForYouzhaoLoading(loadingState: Exclude<LoadingState, null>): stri
 function YouzhaoPanel({
   city,
   errorMsg,
-  exportCityScope,
+  exportCities,
+  exportCity,
   exportErrorMsg,
   exportResult,
   exportTargetLayer,
@@ -1156,7 +1184,7 @@ function YouzhaoPanel({
   onCheck,
   onCityChange,
   onExport,
-  onExportCityScopeChange,
+  onExportCityChange,
   onExportTargetLayerChange,
   onImport,
   onLimitChange,
@@ -1180,7 +1208,8 @@ function YouzhaoPanel({
   task,
 }: {
   city: string;
-  exportCityScope: YouzhaoExportCityScope;
+  exportCities: string[];
+  exportCity: string;
   errorMsg: string | null;
   exportErrorMsg: string | null;
   exportResult: YouzhaoExportResult | null;
@@ -1192,7 +1221,7 @@ function YouzhaoPanel({
   onCheck: () => void;
   onCityChange: (value: string) => void;
   onExport: (partial?: boolean) => void;
-  onExportCityScopeChange: (value: YouzhaoExportCityScope) => void;
+  onExportCityChange: (value: string) => void;
   onExportTargetLayerChange: (value: YouzhaoExportTargetLayer) => void;
   onImport: () => void;
   onLimitChange: (value: string) => void;
@@ -1216,9 +1245,7 @@ function YouzhaoPanel({
   task: YouzhaoTaskState | null;
 }) {
   const targetLayerCounts = result?.targetLayerCounts ?? {};
-  const exportRequiresCurrentCity = exportCityScope === "current";
-  const exportDisabled =
-    loading === "youzhao-export" || !hasCleanData || (exportRequiresCurrentCity && !city.trim());
+  const exportDisabled = loading === "youzhao-export" || !hasCleanData || !exportCity;
 
   return (
     <section className="min-w-0 rounded-card border border-line bg-panel p-4 shadow-sm">
@@ -1438,7 +1465,7 @@ function YouzhaoPanel({
           <div>
             <h3 className="text-sm font-semibold">导出钉图 Excel</h3>
             <p className="mt-1 text-sm text-textSubtle">
-              当前城市：{city.trim() || "未选择"}
+              导出城市来自本地 Clean Table，不触发优招采集。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1469,16 +1496,18 @@ function YouzhaoPanel({
 
         <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
           <label className="grid gap-1">
-            <span className="font-medium text-textMain">城市范围</span>
+            <span className="font-medium text-textMain">导出城市</span>
             <select
               className="h-9 rounded-md border border-line bg-white px-3 text-sm"
-              onChange={(event) =>
-                onExportCityScopeChange(event.target.value as YouzhaoExportCityScope)
-              }
-              value={exportCityScope}
+              onChange={(event) => onExportCityChange(event.target.value)}
+              value={exportCity}
             >
-              <option value="current">当前城市</option>
               <option value="all">全部城市</option>
+              {exportCities.map((optionCity) => (
+                <option key={optionCity} value={optionCity}>
+                  {optionCity}
+                </option>
+              ))}
             </select>
           </label>
           <label className="grid gap-1">
@@ -1842,13 +1871,13 @@ function CleanMarkerTable({
         <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
         <h2 className="text-base font-semibold">Clean Table</h2>
       </div>
-      <div className="overflow-x-auto">
+      <TableScrollFrame>
         <table className="w-full min-w-[760px] border-collapse text-left text-sm">
           <thead className="bg-tableHead text-textSubtle">
             <tr>
               {["站点名称", "地址", "联系人", "电话", "同步动作", "同步状态", "更新时间"].map(
                 (column) => (
-                  <th key={column} className="px-4 py-3 font-medium">
+                  <th key={column} className="sticky top-0 z-10 bg-tableHead px-4 py-3 font-medium">
                     {column}
                   </th>
                 ),
@@ -1877,7 +1906,7 @@ function CleanMarkerTable({
             )}
           </tbody>
         </table>
-      </div>
+      </TableScrollFrame>
     </section>
   );
 }

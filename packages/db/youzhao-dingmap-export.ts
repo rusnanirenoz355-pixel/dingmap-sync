@@ -157,6 +157,27 @@ export async function exportYouzhaoDingmapTemplates(
   }
 }
 
+export function listYouzhaoExportCities(): string[] {
+  const database = new DatabaseSync(resolveDatabasePath());
+  try {
+    const metadataBySourceId = loadYouzhaoRawMetadata(database);
+    const cities = new Set<string>();
+
+    for (const marker of listYouzhaoCleanMarkers(database)) {
+      const city = normalizeCityDisplay(
+        marker.sourceId ? metadataBySourceId.get(marker.sourceId)?.city : "",
+      );
+      if (city) {
+        cities.add(city);
+      }
+    }
+
+    return Array.from(cities).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  } finally {
+    database.close();
+  }
+}
+
 export function buildYouzhaoExportFilename(input: {
   city: string;
   targetLayer: DingmapTargetLayer;
@@ -240,6 +261,10 @@ function buildExportMessage(fileCount: number, missingCityExcluded: number): str
 function normalizeCityKey(value: unknown): string {
   const city = normalizeText(value).replace(/\s+/g, "");
   return city.endsWith("市") ? city.slice(0, -1) : city;
+}
+
+function normalizeCityDisplay(value: unknown): string {
+  return normalizeCityKey(value);
 }
 
 function listYouzhaoCleanMarkers(database: DatabaseSync): CleanMarker[] {

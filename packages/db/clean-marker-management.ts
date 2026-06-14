@@ -7,10 +7,8 @@ import { resolveDatabasePath } from "./database-url";
 export type CleanMarkerManagementStatus = "normal" | "anomaly" | "deleted";
 
 export type CleanMarkerAnomalyReason =
-  | "missing_coordinates"
-  | "invalid_coordinates"
-  | "has_error"
-  | "possible_duplicate";
+  | "missing_site_name"
+  | "missing_address";
 
 export interface ManagedCleanMarker extends CleanMarker {
   id: number;
@@ -89,7 +87,6 @@ type EditableFields = Pick<
   | "phone"
   | "salary"
   | "welfare"
-  | "interviewTime"
   | "jobTitle"
   | "remark"
 >;
@@ -103,7 +100,6 @@ const STRING_EDITABLE_FIELDS = [
   "phone",
   "salary",
   "welfare",
-  "interviewTime",
   "jobTitle",
   "remark",
 ] as const;
@@ -269,8 +265,7 @@ function loadManagedRows(database: DatabaseSync): ManagedCleanMarker[] {
       `,
     )
     .all() as CleanMarkerDbRow[];
-  const duplicateCounts = buildDuplicateMergeKeyCounts(rows);
-  return rows.map((row) => mapManagedCleanMarkerRow(row, duplicateCounts));
+  return rows.map((row) => mapManagedCleanMarkerRow(row));
 }
 
 function loadManagedRowById(database: DatabaseSync, id: number): ManagedCleanMarker {
@@ -288,32 +283,12 @@ function loadManagedRowById(database: DatabaseSync, id: number): ManagedCleanMar
     throw new CleanMarkerManagementError("Clean Marker 不存在。", 404);
   }
 
-  const rows = database.prepare("SELECT id, merge_key, deleted_at FROM clean_markers").all() as Array<
-    Pick<CleanMarkerDbRow, "id" | "merge_key" | "deleted_at">
-  >;
-  return mapManagedCleanMarkerRow(row, buildDuplicateMergeKeyCounts(rows));
+  return mapManagedCleanMarkerRow(row);
 }
 
-function buildDuplicateMergeKeyCounts(
-  rows: Array<Pick<CleanMarkerDbRow, "merge_key" | "deleted_at">>,
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const mergeKey = row.merge_key?.trim();
-    if (!mergeKey || row.deleted_at) {
-      continue;
-    }
-    counts.set(mergeKey, (counts.get(mergeKey) ?? 0) + 1);
-  }
-  return counts;
-}
-
-function mapManagedCleanMarkerRow(
-  row: CleanMarkerDbRow,
-  duplicateCounts: Map<string, number>,
-): ManagedCleanMarker {
+function mapManagedCleanMarkerRow(row: CleanMarkerDbRow): ManagedCleanMarker {
   const deletedAt = row.deleted_at ?? null;
-  const anomalyReasons = deletedAt ? [] : deriveAnomalyReasons(row, duplicateCounts);
+  const anomalyReasons = deletedAt ? [] : deriveAnomalyReasons(row);
   return {
     id: row.id,
     source: row.source,
@@ -347,38 +322,23 @@ function mapManagedCleanMarkerRow(
   };
 }
 
-function deriveAnomalyReasons(
-  row: Pick<
-    CleanMarkerDbRow,
-    "longitude" | "latitude" | "error_msg" | "merge_key" | "deleted_at"
-  >,
-  duplicateCounts: Map<string, number>,
+export function deriveAnomalyReasons(
+  row: Pick<CleanMarkerDbRow, "site_name" | "address">,
 ): CleanMarkerAnomalyReason[] {
   const reasons: CleanMarkerAnomalyReason[] = [];
-  const longitude = row.longitude;
-  const latitude = row.latitude;
-
-  if (longitude === null || latitude === null) {
-    reasons.push("missing_coordinates");
+  if (!row.site_name.trim()) {
+    reasons.push("missing_site_name");
   }
 
-  if (
-    (longitude !== null && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180)) ||
-    (latitude !== null && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90))
-  ) {
-    reasons.push("invalid_coordinates");
-  }
-
-  if (row.error_msg?.trim()) {
-    reasons.push("has_error");
-  }
-
-  const mergeKey = row.merge_key?.trim();
-  if (mergeKey && (duplicateCounts.get(mergeKey) ?? 0) > 1) {
-    reasons.push("possible_duplicate");
+  if (!row.address.trim()) {
+    reasons.push("missing_address");
   }
 
   return reasons;
+}
+
+export function isImportedRecordAbnormal(record: Pick<CleanMarker, "siteName" | "address">): boolean {
+  return !record.siteName.trim() || !record.address.trim();
 }
 
 function filterBySearchAndSource(
@@ -470,7 +430,6 @@ function normalizeEditableFields(
     phone: current.phone,
     salary: current.salary,
     welfare: current.welfare,
-    interviewTime: current.interviewTime,
     jobTitle: current.jobTitle,
     remark: current.remark,
   };

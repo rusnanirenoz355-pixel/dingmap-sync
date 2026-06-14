@@ -10,6 +10,7 @@ import {
   ManagementDrawer,
   type EditableFormState,
 } from "../components/ManagementDrawer";
+import { TableScrollFrame } from "../components/TableScrollFrame";
 import { TruncatedText } from "../components/TruncatedText";
 
 interface ManagedCleanMarkerListResponse {
@@ -263,7 +264,7 @@ export default function DataManagementPage() {
             {loading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
           </div>
 
-          <TableScrollFrame>
+          <TableScrollFrame maxHeightClass="max-h-[520px]">
             <table className="w-full min-w-[1240px] table-fixed border-collapse text-left text-sm">
               <thead className="bg-tableHead text-textSubtle">
                 <tr>
@@ -378,14 +379,6 @@ export default function DataManagementPage() {
         saving={saving}
       />
     </main>
-  );
-}
-
-function TableScrollFrame({ children }: { children: ReactNode }) {
-  return (
-    <div className="min-w-0 max-h-[520px] overflow-x-auto overflow-y-auto">
-      {children}
-    </div>
   );
 }
 

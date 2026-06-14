@@ -99,10 +99,37 @@ describe("dingmap export template", () => {
       详细地址: "Synthetic Road",
       经度: "",
       纬度: "",
-      备注: "【岗位名称】\nSynthetic Job\n\n【薪资方案】\nSynthetic salary\n\n【新人政策】\nSynthetic welfare",
+      备注: "【薪资方案】\nSynthetic salary\n\n【新人政策】\nSynthetic welfare",
       字段一: `Manager A ${syntheticPhone}`,
       字段二: "Synthetic settlement",
     });
+    expect(row["备注"]).not.toContain("岗位名称");
+    expect(row["备注"]).not.toContain("Synthetic Job");
+  });
+
+  it("leaves youzhao remark blank when salary and welfare are blank without affecting field one or two", () => {
+    const row = mapCleanMarkerToDingmapImportRow({
+      source: "youzhao",
+      sourceId: "site-1:job-a",
+      siteName: "Synthetic Site",
+      address: "Synthetic Road",
+      stationManager: "Manager A",
+      phone: "",
+      jobTitle: "Synthetic Job",
+      salary: "  ",
+      welfare: null,
+      remark: "Synthetic settlement",
+      originType: "web",
+      syncAction: "create",
+      syncStatus: "pending",
+    });
+
+    expect(row["备注"]).toBe("");
+    expect(row["备注"]).not.toContain("岗位名称");
+    expect(row["备注"]).not.toContain("薪资方案");
+    expect(row["备注"]).not.toContain("新人政策");
+    expect(row["字段一"]).toBe("Manager A");
+    expect(row["字段二"]).toBe("Synthetic settlement");
   });
 });
 

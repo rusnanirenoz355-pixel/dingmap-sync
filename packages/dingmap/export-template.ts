@@ -56,9 +56,8 @@ function buildFieldTwo(marker: Pick<CleanMarker, "remark" | "interviewTime">): s
   return marker.interviewTime?.trim() ?? "";
 }
 
-function buildYouzhaoRemark(marker: Pick<CleanMarker, "jobTitle" | "salary" | "welfare">): string {
+function buildYouzhaoRemark(marker: Pick<CleanMarker, "salary" | "welfare">): string {
   const sections = [
-    ["岗位名称", marker.jobTitle?.trim()],
     ["薪资方案", marker.salary?.trim()],
     ["新人政策", marker.welfare?.trim()],
   ].filter((section): section is [string, string] => Boolean(section[1]));

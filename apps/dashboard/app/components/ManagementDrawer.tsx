@@ -23,7 +23,6 @@ export interface EditableFormState {
   phone: string;
   salary: string;
   welfare: string;
-  interviewTime: string;
   jobTitle: string;
   remark: string;
 }
@@ -41,7 +40,6 @@ const editableFields: Array<{
   { key: "phone", label: "手机号" },
   { key: "salary", label: "薪资", multiline: true },
   { key: "welfare", label: "福利", multiline: true },
-  { key: "interviewTime", label: "面试时间" },
   { key: "jobTitle", label: "岗位" },
   { key: "remark", label: "备注", multiline: true },
 ];
@@ -182,7 +180,6 @@ function markerToForm(marker: ManagedCleanMarker): EditableFormState {
     phone: marker.phone ?? "",
     salary: marker.salary ?? "",
     welfare: marker.welfare ?? "",
-    interviewTime: marker.interviewTime ?? "",
     jobTitle: marker.jobTitle ?? "",
     remark: marker.remark ?? "",
   };
@@ -197,7 +194,6 @@ const emptyForm: EditableFormState = {
   phone: "",
   salary: "",
   welfare: "",
-  interviewTime: "",
   jobTitle: "",
   remark: "",
 };
